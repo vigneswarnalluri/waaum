@@ -6,7 +6,12 @@ yarn-error.log*
 
 # WhatsApp Authentication (IMPORTANT: Keep this secure!)
 auth_info/
-*.json
+
+# Keep these JSON files
+!package.json
+!package-lock.json
+!railway.json
+!ecosystem.config.js
 
 # Logs
 logs/
