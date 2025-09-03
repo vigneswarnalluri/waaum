@@ -1,11 +1,14 @@
+[providers]
+node = "18"
+
 [phases.setup]
-nixPkgs = ["nodejs", "npm"]
+nixPkgs = ["nodejs-18_x", "npm"]
 
 [phases.install]
-cmds = ["npm install"]
+cmds = ["npm ci"]
 
 [phases.build]
-cmds = ["npm run build || true"]
+cmds = ["npm run build || echo 'No build step'"]
 
 [start]
-cmd = "npm start"
+cmd = "node index.js"
