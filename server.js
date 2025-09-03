@@ -162,6 +162,7 @@ app.get('/', (req, res) => {
                 <p>Check Railway logs for QR code to connect WhatsApp</p>
                 <p><strong>Source Group:</strong> ${config.groups.sourceGroup}</p>
                 <p><strong>Target Group:</strong> ${config.groups.targetGroup}</p>
+                <p><a href="/qr" style="color: #25D366; font-weight: bold;">🔗 View QR Code in Web Interface</a></p>
             </div>
             
             <h3>🔧 Configuration</h3>
@@ -178,6 +179,9 @@ app.get('/', (req, res) => {
     `)
 })
 
+// Store QR code globally
+let currentQR = null
+
 // API endpoints
 app.get('/api/stats', (req, res) => {
     res.json(stats)
@@ -185,6 +189,133 @@ app.get('/api/stats', (req, res) => {
 
 app.get('/api/config', (req, res) => {
     res.json(config)
+})
+
+// QR Code endpoint for better display
+app.get('/qr', (req, res) => {
+    res.send(`
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>WhatsApp QR Code</title>
+        <style>
+            body { 
+                font-family: Arial, sans-serif; 
+                margin: 0; 
+                padding: 20px; 
+                background: #f5f5f5; 
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                min-height: 100vh;
+            }
+            .container { 
+                max-width: 600px; 
+                background: white; 
+                padding: 30px; 
+                border-radius: 10px; 
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                text-align: center;
+            }
+            .qr-container {
+                background: white;
+                padding: 20px;
+                border: 2px solid #25D366;
+                border-radius: 10px;
+                margin: 20px 0;
+                display: inline-block;
+            }
+            .qr-text {
+                font-family: monospace;
+                font-size: 12px;
+                line-height: 1;
+                white-space: pre;
+                color: #000;
+                background: #fff;
+            }
+            .instructions {
+                background: #e3f2fd;
+                padding: 15px;
+                border-radius: 5px;
+                margin: 20px 0;
+            }
+            .status {
+                padding: 10px;
+                border-radius: 5px;
+                margin: 10px 0;
+            }
+            .success { background: #d4edda; color: #155724; }
+            .warning { background: #fff3cd; color: #856404; }
+            .refresh-btn {
+                background: #25D366;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 5px;
+                cursor: pointer;
+                font-size: 16px;
+                margin: 10px;
+            }
+            .refresh-btn:hover {
+                background: #128C7E;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>📱 WhatsApp QR Code</h1>
+            
+            <div class="instructions">
+                <h3>How to Connect:</h3>
+                <ol style="text-align: left;">
+                    <li>Open WhatsApp on your phone</li>
+                    <li>Go to Settings → Linked Devices</li>
+                    <li>Tap "Link a Device"</li>
+                    <li>Scan the QR code below</li>
+                </ol>
+            </div>
+            
+            ${currentQR ? `
+                <div class="status success">
+                    <h3>✅ QR Code Available</h3>
+                    <p>Scan this QR code with your WhatsApp app:</p>
+                </div>
+                
+                <div class="qr-container">
+                    <div class="qr-text">${currentQR}</div>
+                </div>
+                
+                <div class="status warning">
+                    <p><strong>Note:</strong> QR codes expire after 20 seconds. If this one doesn't work, refresh the page.</p>
+                </div>
+            ` : `
+                <div class="status warning">
+                    <h3>⏳ Waiting for QR Code</h3>
+                    <p>No QR code available yet. The bot is starting up...</p>
+                    <p>This page will automatically refresh every 5 seconds.</p>
+                </div>
+            `}
+            
+            <button class="refresh-btn" onclick="location.reload()">🔄 Refresh QR Code</button>
+            
+            <div style="margin-top: 30px;">
+                <a href="/" style="color: #25D366; text-decoration: none;">← Back to Dashboard</a>
+            </div>
+        </div>
+        
+        <script>
+            // Auto-refresh every 5 seconds if no QR code
+            ${!currentQR ? `
+                setTimeout(() => {
+                    location.reload();
+                }, 5000);
+            ` : ''}
+        </script>
+    </body>
+    </html>
+    `)
 })
 
 // Start Express server
@@ -215,10 +346,11 @@ async function startBot() {
             console.log("=".repeat(50))
             qrcode.generate(qr, { small: true })
             console.log("=".repeat(50))
-            console.log("If QR code is split, try:")
-            console.log("1. Make terminal window wider")
-            console.log("2. Use Railway web interface logs")
-            console.log("3. Check Railway dashboard for better QR display")
+            console.log("🌐 Better QR display: https://waaum-production.up.railway.app/qr")
+            console.log("If QR code is split, use the web interface above")
+            
+            // Store QR code for web interface
+            currentQR = qrcode.generate(qr, { small: true })
         }
         if (connection === "open") {
             logMessage("info", "✅ Connected to WhatsApp successfully")
