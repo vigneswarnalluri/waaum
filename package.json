@@ -2,9 +2,9 @@
   "name": "whatsapp-bot",
   "version": "2.0.0",
   "type": "module",
-  "main": "index.js",
+  "main": "server.js",
   "scripts": {
-    "start": "node index.js",
+    "start": "node server.js",
     "build": "echo 'No build step required'",
     "web": "node web-interface.js",
     "dev": "node index.js & node web-interface.js",
