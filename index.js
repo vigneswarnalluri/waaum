@@ -1,6 +1,6 @@
 import { default as makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, downloadMediaMessage } from "@whiskeysockets/baileys"
 import P from "pino"
-import qrcode from "qrcode-terminal"
+import qrcode from "qrcode"
 import fs from "fs"
 import path from "path"
 import { fileURLToPath } from "url"
@@ -23,6 +23,9 @@ const stats = {
     errors: 0,
     startTime: new Date()
 }
+
+// Global QR code storage
+let currentQRCode = null
 
 // Helper functions
 function resetRateLimit() {
@@ -112,18 +115,41 @@ async function startBot() {
     sock.ev.on("creds.update", saveCreds)
 
     // Connection handler
-    sock.ev.on("connection.update", (update) => {
+    sock.ev.on("connection.update", async (update) => {
         const { connection, qr } = update
         if (qr) {
             logMessage("info", "QR Code generated - scan with WhatsApp")
             console.log("Scan this QR code with WhatsApp:")
             console.log("=".repeat(50))
-            qrcode.generate(qr, { small: true })
-            console.log("=".repeat(50))
-            console.log("If QR code is split, try:")
-            console.log("1. Make terminal window wider")
-            console.log("2. Use Railway web interface logs")
-            console.log("3. Check Railway dashboard for better QR display")
+            
+            try {
+                // Generate QR code as data URL
+                const qrDataURL = await qrcode.toDataURL(qr, {
+                    width: 512,
+                    margin: 2,
+                    color: {
+                        dark: '#000000',
+                        light: '#FFFFFF'
+                    }
+                })
+                
+                // Store QR code globally
+                currentQRCode = qrDataURL
+                
+                // Also generate terminal version as fallback
+                const qrTerminal = await qrcode.toString(qr, { type: 'terminal', small: true })
+                console.log(qrTerminal)
+                
+                console.log("=".repeat(50))
+                console.log("🌐 For better QR code display, visit:")
+                console.log(`   http://localhost:${process.env.PORT || 3000}/qr`)
+                console.log("   or check Railway web interface")
+                console.log("=".repeat(50))
+                
+            } catch (error) {
+                logMessage("error", `Failed to generate QR code: ${error.message}`)
+                console.log("❌ Failed to generate QR code")
+            }
         }
         if (connection === "open") {
             logMessage("info", "✅ Connected to WhatsApp successfully")
@@ -255,6 +281,9 @@ sock.ev.on("messages.upsert", async (m) => {
     }
 })
 }
+
+// Export QR code for web interface
+export { currentQRCode }
 
 // Start both WhatsApp bot and web interface
 startBot()

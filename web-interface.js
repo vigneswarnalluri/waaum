@@ -132,6 +132,7 @@ app.get('/', (req, res) => {
             <button onclick="loadConfig()">📥 Load Current Config</button>
             <button onclick="saveConfig()">💾 Save Configuration</button>
             <button onclick="restartBot()">🔄 Restart Bot</button>
+            <button onclick="window.open('/qr', '_blank')">📱 View QR Code</button>
         </div>
         
         <script>
@@ -292,6 +293,17 @@ app.get('/api/stats', (req, res) => {
     }
 })
 
+// QR Code API endpoint
+app.get('/api/qr', async (req, res) => {
+    try {
+        // Import the currentQRCode from the main bot file
+        const { currentQRCode } = await import('./index.js')
+        res.json({ qrCode: currentQRCode })
+    } catch (error) {
+        res.status(500).json({ error: error.message })
+    }
+})
+
 // QR Code endpoint for better display
 app.get('/qr', (req, res) => {
     res.send(`
@@ -302,9 +314,13 @@ app.get('/qr', (req, res) => {
         <style>
             body { font-family: Arial, sans-serif; text-align: center; padding: 20px; background: #f5f5f5; }
             .container { max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-            .qr-code { font-family: monospace; font-size: 8px; line-height: 8px; background: white; padding: 20px; border: 2px solid #25D366; border-radius: 10px; display: inline-block; }
+            .qr-code { background: white; padding: 20px; border: 2px solid #25D366; border-radius: 10px; display: inline-block; margin: 20px 0; }
+            .qr-code img { max-width: 100%; height: auto; }
             .instructions { margin: 20px 0; color: #666; }
             .refresh { background: #25D366; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin: 10px; }
+            .status { padding: 10px; margin: 10px 0; border-radius: 4px; }
+            .waiting { background: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
+            .ready { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
         </style>
     </head>
     <body>
@@ -315,13 +331,45 @@ app.get('/qr', (req, res) => {
                 <p>2. Go to Settings → Linked Devices → Link a Device</p>
                 <p>3. Scan the QR code below</p>
             </div>
-            <div class="qr-code" id="qr-code">
-                <p>QR Code will appear here when bot starts...</p>
-                <p>Check Railway logs for the QR code</p>
+            <div id="status" class="status waiting">
+                Waiting for QR code...
             </div>
-            <button class="refresh" onclick="location.reload()">🔄 Refresh</button>
-            <p><small>If QR code is not visible, check Railway logs</small></p>
+            <div class="qr-code" id="qr-container" style="display: none;">
+                <img id="qr-image" src="" alt="WhatsApp QR Code">
+            </div>
+            <button class="refresh" onclick="checkQRCode()">🔄 Refresh</button>
+            <p><small>This page will automatically refresh when a new QR code is generated</small></p>
         </div>
+        
+        <script>
+            function checkQRCode() {
+                fetch('/api/qr')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.qrCode) {
+                            document.getElementById('qr-image').src = data.qrCode;
+                            document.getElementById('qr-container').style.display = 'block';
+                            document.getElementById('status').innerHTML = '✅ QR Code ready - scan with WhatsApp';
+                            document.getElementById('status').className = 'status ready';
+                        } else {
+                            document.getElementById('qr-container').style.display = 'none';
+                            document.getElementById('status').innerHTML = '⏳ Waiting for QR code...';
+                            document.getElementById('status').className = 'status waiting';
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        document.getElementById('status').innerHTML = '❌ Error loading QR code';
+                        document.getElementById('status').className = 'status error';
+                    });
+            }
+            
+            // Check for QR code every 2 seconds
+            setInterval(checkQRCode, 2000);
+            
+            // Check immediately on page load
+            checkQRCode();
+        </script>
     </body>
     </html>
     `)
