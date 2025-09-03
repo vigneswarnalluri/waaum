@@ -292,6 +292,41 @@ app.get('/api/stats', (req, res) => {
     }
 })
 
+// QR Code endpoint for better display
+app.get('/qr', (req, res) => {
+    res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>WhatsApp QR Code</title>
+        <style>
+            body { font-family: Arial, sans-serif; text-align: center; padding: 20px; background: #f5f5f5; }
+            .container { max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+            .qr-code { font-family: monospace; font-size: 8px; line-height: 8px; background: white; padding: 20px; border: 2px solid #25D366; border-radius: 10px; display: inline-block; }
+            .instructions { margin: 20px 0; color: #666; }
+            .refresh { background: #25D366; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin: 10px; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🤖 WhatsApp Bot QR Code</h1>
+            <div class="instructions">
+                <p>1. Open WhatsApp on your phone</p>
+                <p>2. Go to Settings → Linked Devices → Link a Device</p>
+                <p>3. Scan the QR code below</p>
+            </div>
+            <div class="qr-code" id="qr-code">
+                <p>QR Code will appear here when bot starts...</p>
+                <p>Check Railway logs for the QR code</p>
+            </div>
+            <button class="refresh" onclick="location.reload()">🔄 Refresh</button>
+            <p><small>If QR code is not visible, check Railway logs</small></p>
+        </div>
+    </body>
+    </html>
+    `)
+})
+
 app.listen(PORT, () => {
     console.log(`🌐 Web interface running at http://localhost:${PORT}`)
 })

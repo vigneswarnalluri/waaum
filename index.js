@@ -117,7 +117,13 @@ async function startBot() {
         if (qr) {
             logMessage("info", "QR Code generated - scan with WhatsApp")
             console.log("Scan this QR code with WhatsApp:")
+            console.log("=".repeat(50))
             qrcode.generate(qr, { small: true })
+            console.log("=".repeat(50))
+            console.log("If QR code is split, try:")
+            console.log("1. Make terminal window wider")
+            console.log("2. Use Railway web interface logs")
+            console.log("3. Check Railway dashboard for better QR display")
         }
         if (connection === "open") {
             logMessage("info", "✅ Connected to WhatsApp successfully")
