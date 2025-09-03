@@ -1,6 +1,3 @@
-[providers]
-node = "18"
-
 [phases.setup]
 nixPkgs = ["nodejs-18_x", "npm"]
 
@@ -12,3 +9,6 @@ cmds = ["npm run build || echo 'No build step'"]
 
 [start]
 cmd = "node index.js"
+
+[environment]
+NODE_VERSION = "18"
