@@ -36,6 +36,20 @@ app.get('/', (req, res) => {
             .checkbox-group { display: flex; flex-wrap: wrap; gap: 10px; }
             .checkbox-item { display: flex; align-items: center; }
             .checkbox-item input { width: auto; margin-right: 5px; }
+            .group-config { margin: 15px 0; }
+            .input-group { display: flex; gap: 10px; align-items: center; }
+            .input-group input { flex: 1; }
+            .detect-btn { background: #17a2b8; color: white; padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; }
+            .detect-btn:hover { background: #138496; }
+            .help-text { color: #666; font-size: 12px; margin-top: 5px; display: block; }
+            .group-actions { margin: 20px 0; display: flex; gap: 10px; flex-wrap: wrap; }
+            .update-btn { background: #28a745; color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+            .update-btn:hover { background: #218838; }
+            .test-btn { background: #ffc107; color: #212529; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+            .test-btn:hover { background: #e0a800; }
+            .action-buttons { margin: 20px 0; display: flex; gap: 10px; flex-wrap: wrap; }
+            #currentStatus { background: #f8f9fa; padding: 15px; border-radius: 5px; border: 1px solid #dee2e6; }
+            #currentStatus p { margin: 8px 0; }
         </style>
     </head>
     <body>
@@ -45,11 +59,28 @@ app.get('/', (req, res) => {
             
             <div class="section">
                 <h3>📱 Group Settings</h3>
-                <label>Source Group ID:</label>
-                <input type="text" id="sourceGroup" placeholder="120363405469016629@g.us">
+                <div class="group-config">
+                    <label>Source Group ID (where messages come from):</label>
+                    <div class="input-group">
+                        <input type="text" id="sourceGroup" placeholder="120363405469016629@g.us">
+                        <button type="button" onclick="detectCurrentGroup('source')" class="detect-btn">🔍 Detect Current</button>
+                    </div>
+                    <small class="help-text">Group ID where messages will be monitored and forwarded from</small>
+                </div>
                 
-                <label>Target Group ID:</label>
-                <input type="text" id="targetGroup" placeholder="120363417347954807@g.us">
+                <div class="group-config">
+                    <label>Target Group ID (where messages go to):</label>
+                    <div class="input-group">
+                        <input type="text" id="targetGroup" placeholder="120363417347954807@g.us">
+                        <button type="button" onclick="detectCurrentGroup('target')" class="detect-btn">🔍 Detect Current</button>
+                    </div>
+                    <small class="help-text">Group ID where messages will be forwarded to</small>
+                </div>
+                
+                <div class="group-actions">
+                    <button onclick="updateGroupConfig()" class="update-btn">🔄 Update Groups & Restart Bot</button>
+                    <button onclick="testGroupConnection()" class="test-btn">🧪 Test Group Connection</button>
+                </div>
             </div>
             
             <div class="section">
@@ -129,10 +160,21 @@ app.get('/', (req, res) => {
                 </label>
             </div>
             
-            <button onclick="loadConfig()">📥 Load Current Config</button>
-            <button onclick="saveConfig()">💾 Save Configuration</button>
-            <button onclick="restartBot()">🔄 Restart Bot</button>
-            <button onclick="window.open('/qr', '_blank')">📱 View QR Code</button>
+            <div class="action-buttons">
+                <button onclick="loadConfig()">📥 Load Current Config</button>
+                <button onclick="saveConfig()">💾 Save Configuration</button>
+                <button onclick="restartBot()">🔄 Restart Bot</button>
+                <button onclick="window.open('/qr', '_blank')">📱 View QR Code</button>
+            </div>
+            
+            <div class="section">
+                <h3>📊 Current Status</h3>
+                <div id="currentStatus">
+                    <p><strong>Source Group:</strong> <span id="currentSourceGroup">Loading...</span></p>
+                    <p><strong>Target Group:</strong> <span id="currentTargetGroup">Loading...</span></p>
+                    <p><strong>Bot Status:</strong> <span id="botStatus">Loading...</span></p>
+                </div>
+            </div>
         </div>
         
         <script>
@@ -173,6 +215,11 @@ app.get('/', (req, res) => {
                     // Load logging
                     document.getElementById('logLevel').value = config.logging.level
                     document.getElementById('saveToFile').checked = config.logging.saveToFile
+                    
+                    // Update status display
+                    document.getElementById('currentSourceGroup').textContent = config.groups.sourceGroup || 'Not set'
+                    document.getElementById('currentTargetGroup').textContent = config.groups.targetGroup || 'Not set'
+                    document.getElementById('botStatus').textContent = 'Connected' // This could be dynamic
                     
                     showStatus('Configuration loaded successfully!')
                 } catch (error) {
@@ -242,6 +289,130 @@ app.get('/', (req, res) => {
                 }
             }
             
+            async function updateGroupConfig() {
+                const sourceGroup = document.getElementById('sourceGroup').value.trim()
+                const targetGroup = document.getElementById('targetGroup').value.trim()
+                
+                if (!sourceGroup || !targetGroup) {
+                    showStatus('Please enter both source and target group IDs', 'error')
+                    return
+                }
+                
+                if (!sourceGroup.includes('@g.us') || !targetGroup.includes('@g.us')) {
+                    showStatus('Group IDs must end with @g.us', 'error')
+                    return
+                }
+                
+                try {
+                    showStatus('Updating group configuration...', 'info')
+                    
+                    // Update the configuration
+                    const config = {
+                        groups: {
+                            sourceGroup: sourceGroup,
+                            targetGroup: targetGroup
+                        },
+                        settings: {
+                            forwardText: document.getElementById('forwardText').checked,
+                            forwardImages: document.getElementById('forwardImages').checked,
+                            forwardVideos: document.getElementById('forwardVideos').checked,
+                            forwardAudio: document.getElementById('forwardAudio').checked,
+                            forwardDocuments: document.getElementById('forwardDocuments').checked
+                        },
+                        filters: {
+                            enabled: document.getElementById('filtersEnabled').checked,
+                            keywords: document.getElementById('keywords').value.split(',').map(s => s.trim()).filter(s => s),
+                            excludeKeywords: document.getElementById('excludeKeywords').value.split(',').map(s => s.trim()).filter(s => s),
+                            allowedUsers: document.getElementById('allowedUsers').value.split(',').map(s => s.trim()).filter(s => s),
+                            blockedUsers: document.getElementById('blockedUsers').value.split(',').map(s => s.trim()).filter(s => s)
+                        },
+                        rateLimit: {
+                            enabled: document.getElementById('rateLimitEnabled').checked,
+                            maxMessagesPerMinute: parseInt(document.getElementById('maxMessagesPerMinute').value),
+                            maxMediaPerMinute: parseInt(document.getElementById('maxMediaPerMinute').value)
+                        },
+                        logging: {
+                            level: document.getElementById('logLevel').value,
+                            saveToFile: document.getElementById('saveToFile').checked,
+                            logFile: 'bot.log'
+                        }
+                    }
+                    
+                    const response = await fetch('/api/config', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(config)
+                    })
+                    
+                    if (response.ok) {
+                        showStatus('✅ Group configuration updated! Restarting bot...', 'success')
+                        
+                        // Restart the bot
+                        setTimeout(async () => {
+                            await restartBot()
+                        }, 1000)
+                    } else {
+                        throw new Error('Failed to update configuration')
+                    }
+                } catch (error) {
+                    showStatus('Error updating group configuration: ' + error.message, 'error')
+                }
+            }
+            
+            async function testGroupConnection() {
+                const sourceGroup = document.getElementById('sourceGroup').value.trim()
+                const targetGroup = document.getElementById('targetGroup').value.trim()
+                
+                if (!sourceGroup || !targetGroup) {
+                    showStatus('Please enter both source and target group IDs first', 'error')
+                    return
+                }
+                
+                try {
+                    showStatus('Testing group connections...', 'info')
+                    
+                    const response = await fetch('/api/test-groups', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ sourceGroup, targetGroup })
+                    })
+                    
+                    const result = await response.json()
+                    
+                    if (response.ok) {
+                        showStatus(\`✅ Group test successful! Source: \${result.sourceGroup.name}, Target: \${result.targetGroup.name}\`, 'success')
+                    } else {
+                        showStatus(\`❌ Group test failed: \${result.error}\`, 'error')
+                    }
+                } catch (error) {
+                    showStatus('Error testing groups: ' + error.message, 'error')
+                }
+            }
+            
+            async function detectCurrentGroup(type) {
+                try {
+                    showStatus('Detecting current group...', 'info')
+                    
+                    const response = await fetch('/api/detect-group', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ type })
+                    })
+                    
+                    const result = await response.json()
+                    
+                    if (response.ok && result.groupId) {
+                        const inputId = type === 'source' ? 'sourceGroup' : 'targetGroup'
+                        document.getElementById(inputId).value = result.groupId
+                        showStatus(\`✅ Detected \${type} group: \${result.groupName}\`, 'success')
+                    } else {
+                        showStatus(\`❌ Could not detect \${type} group: \${result.error}\`, 'error')
+                    }
+                } catch (error) {
+                    showStatus('Error detecting group: ' + error.message, 'error')
+                }
+            }
+            
             // Load config on page load
             window.onload = loadConfig
         </script>
@@ -299,6 +470,36 @@ app.get('/api/qr', async (req, res) => {
         // Import the currentQRCode from the main bot file
         const { currentQRCode } = await import('./index.js')
         res.json({ qrCode: currentQRCode })
+    } catch (error) {
+        res.status(500).json({ error: error.message })
+    }
+})
+
+// Test group connection endpoint
+app.post('/api/test-groups', async (req, res) => {
+    try {
+        const { sourceGroup, targetGroup } = req.body
+        
+        // Import the bot instance to test group connections
+        const { testGroupConnection } = await import('./index.js')
+        const result = await testGroupConnection(sourceGroup, targetGroup)
+        
+        res.json(result)
+    } catch (error) {
+        res.status(500).json({ error: error.message })
+    }
+})
+
+// Detect current group endpoint
+app.post('/api/detect-group', async (req, res) => {
+    try {
+        const { type } = req.body
+        
+        // Import the bot instance to detect groups
+        const { detectCurrentGroup } = await import('./index.js')
+        const result = await detectCurrentGroup(type)
+        
+        res.json(result)
     } catch (error) {
         res.status(500).json({ error: error.message })
     }

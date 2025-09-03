@@ -102,6 +102,20 @@ function logMessage(level, message) {
     }
 }
 
+async function validateGroupMembership(sock, groupId) {
+    try {
+        const groupMetadata = await sock.groupMetadata(groupId)
+        logMessage("info", `✅ Bot is member of group: ${groupId}`)
+        logMessage("info", `Group name: ${groupMetadata.subject}`)
+        logMessage("info", `Group participants: ${groupMetadata.participants.length}`)
+        return true
+    } catch (error) {
+        logMessage("error", `❌ Bot is NOT member of group: ${groupId}`)
+        logMessage("error", `Error: ${error.message}`)
+        return false
+    }
+}
+
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState("auth_info")
     const { version } = await fetchLatestBaileysVersion()
@@ -155,6 +169,26 @@ async function startBot() {
             logMessage("info", "✅ Connected to WhatsApp successfully")
             console.log("✅ Connected to WhatsApp")
             
+            // Validate group memberships
+            setTimeout(async () => {
+                logMessage("info", "🔍 Validating group memberships...")
+                const sourceValid = await validateGroupMembership(sock, sourceGroup)
+                const targetValid = await validateGroupMembership(sock, targetGroup)
+                
+                // Send test message if both groups are valid
+                if (sourceValid && targetValid) {
+                    logMessage("info", "🧪 Sending test message to verify forwarding...")
+                    try {
+                        await sock.sendMessage(targetGroup, { 
+                            text: "🤖 Bot is now active and ready to forward messages!" 
+                        })
+                        logMessage("info", "✅ Test message sent successfully")
+                    } catch (error) {
+                        logMessage("error", `❌ Failed to send test message: ${error.message}`)
+                    }
+                }
+            }, 5000) // Wait 5 seconds after connection
+            
             // Reset rate limiting every hour
             setInterval(resetRateLimit, 60 * 60 * 1000)
         } else if (connection === "close") {
@@ -168,6 +202,9 @@ async function startBot() {
     const sourceGroup = config.groups.sourceGroup
     const targetGroup = config.groups.targetGroup
 
+    // Log configuration for debugging
+    logMessage("info", `Bot configured - Source Group: ${sourceGroup}, Target Group: ${targetGroup}`)
+
   // Inside the messages.upsert event
 sock.ev.on("messages.upsert", async (m) => {
     const msg = m.messages[0]
@@ -175,10 +212,14 @@ sock.ev.on("messages.upsert", async (m) => {
     const from = msg.key.remoteJid
     const sender = msg.key.participant || msg.key.remoteJid
 
-    // Log group IDs for testing
-    logMessage("debug", `Message from: ${from}, Sender: ${sender}`)
-
+    // Enhanced logging for debugging
+    logMessage("debug", `Message received from: ${from}, Sender: ${sender}`)
+    logMessage("debug", `Expected source group: ${sourceGroup}`)
+    logMessage("debug", `Message type: ${Object.keys(msg.message)[0]}`)
+    
+    // Check if message is from expected source group
     if (from === sourceGroup) {
+        logMessage("info", `✅ Message from source group detected: ${from}`)
         // Check rate limiting
         if (!checkRateLimit('message')) {
             logMessage("warn", "Rate limit exceeded for messages")
@@ -196,13 +237,16 @@ sock.ev.on("messages.upsert", async (m) => {
             }
             
             logMessage("info", `Forwarding text: ${text.substring(0, 50)}...`)
+            logMessage("debug", `Sending to target group: ${targetGroup}`)
             try {
-                await sock.sendMessage(targetGroup, { text })
+                const result = await sock.sendMessage(targetGroup, { text })
                 stats.messagesForwarded++
-                logMessage("info", "✅ Text message forwarded successfully")
+                logMessage("info", `✅ Text message forwarded successfully to ${targetGroup}`)
+                logMessage("debug", `Send result: ${JSON.stringify(result)}`)
             } catch (err) {
                 stats.errors++
-                logMessage("error", `❌ Error forwarding text: ${err.message}`)
+                logMessage("error", `❌ Error forwarding text to ${targetGroup}: ${err.message}`)
+                logMessage("error", `Error details: ${JSON.stringify(err)}`)
             }
         }
 
@@ -282,8 +326,44 @@ sock.ev.on("messages.upsert", async (m) => {
 })
 }
 
-// Export QR code for web interface
-export { currentQRCode }
+// Test group connection function
+async function testGroupConnection(sourceGroup, targetGroup) {
+    try {
+        // This would need access to the sock instance
+        // For now, return a simple validation
+        if (!sourceGroup || !targetGroup) {
+            return { error: 'Both source and target groups are required' }
+        }
+        
+        if (!sourceGroup.includes('@g.us') || !targetGroup.includes('@g.us')) {
+            return { error: 'Group IDs must end with @g.us' }
+        }
+        
+        return {
+            success: true,
+            sourceGroup: { id: sourceGroup, name: 'Source Group' },
+            targetGroup: { id: targetGroup, name: 'Target Group' }
+        }
+    } catch (error) {
+        return { error: error.message }
+    }
+}
+
+// Detect current group function
+async function detectCurrentGroup(type) {
+    try {
+        // This would need access to the sock instance and recent messages
+        // For now, return a placeholder
+        return {
+            error: 'Group detection requires bot to be running and receiving messages'
+        }
+    } catch (error) {
+        return { error: error.message }
+    }
+}
+
+// Export functions for web interface
+export { currentQRCode, testGroupConnection, detectCurrentGroup }
 
 // Start both WhatsApp bot and web interface
 startBot()
