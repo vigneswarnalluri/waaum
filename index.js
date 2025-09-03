@@ -209,12 +209,8 @@ async function startBot() {
         }
     })
 
-    // Load group IDs from config
-    const sourceGroup = config.groups.sourceGroup
-    const targetGroup = config.groups.targetGroup
-
     // Log configuration for debugging
-    logMessage("info", `Bot configured - Source Group: ${sourceGroup}, Target Group: ${targetGroup}`)
+    logMessage("info", `Bot configured - Source Group: ${config.groups.sourceGroup}, Target Group: ${config.groups.targetGroup}`)
 
   // Inside the messages.upsert event
 sock.ev.on("messages.upsert", async (m) => {
@@ -225,11 +221,11 @@ sock.ev.on("messages.upsert", async (m) => {
 
     // Enhanced logging for debugging
     logMessage("debug", `Message received from: ${from}, Sender: ${sender}`)
-    logMessage("debug", `Expected source group: ${sourceGroup}`)
+    logMessage("debug", `Expected source group: ${config.groups.sourceGroup}`)
     logMessage("debug", `Message type: ${Object.keys(msg.message)[0]}`)
     
     // Check if message is from expected source group
-    if (from === sourceGroup) {
+    if (from === config.groups.sourceGroup) {
         logMessage("info", `✅ Message from source group detected: ${from}`)
         // Check rate limiting
         if (!checkRateLimit('message')) {
@@ -248,15 +244,15 @@ sock.ev.on("messages.upsert", async (m) => {
             }
             
             logMessage("info", `Forwarding text: ${text.substring(0, 50)}...`)
-            logMessage("debug", `Sending to target group: ${targetGroup}`)
+            logMessage("debug", `Sending to target group: ${config.groups.targetGroup}`)
             try {
-                const result = await sock.sendMessage(targetGroup, { text })
+                const result = await sock.sendMessage(config.groups.targetGroup, { text })
                 stats.messagesForwarded++
-                logMessage("info", `✅ Text message forwarded successfully to ${targetGroup}`)
+                logMessage("info", `✅ Text message forwarded successfully to ${config.groups.targetGroup}`)
                 logMessage("debug", `Send result: ${JSON.stringify(result)}`)
             } catch (err) {
                 stats.errors++
-                logMessage("error", `❌ Error forwarding text to ${targetGroup}: ${err.message}`)
+                logMessage("error", `❌ Error forwarding text to ${config.groups.targetGroup}: ${err.message}`)
                 logMessage("error", `Error details: ${JSON.stringify(err)}`)
             }
         }
@@ -299,25 +295,25 @@ sock.ev.on("messages.upsert", async (m) => {
                 logMessage("info", `Forwarding media: ${type}, Buffer size: ${buffer.length} bytes`)
         
                 if (type === "imageMessage") {
-                    await sock.sendMessage(targetGroup, {
+                    await sock.sendMessage(config.groups.targetGroup, {
                         image: buffer,
                         caption: msg.message.imageMessage?.caption || "",
                         mimetype: msg.message.imageMessage?.mimetype || "image/jpeg"
                     })
                 } else if (type === "videoMessage") {
-                    await sock.sendMessage(targetGroup, {
+                    await sock.sendMessage(config.groups.targetGroup, {
                         video: buffer,
                         caption: msg.message.videoMessage?.caption || "",
                         mimetype: msg.message.videoMessage?.mimetype || "video/mp4"
                     })
                 } else if (type === "audioMessage") {
-                    await sock.sendMessage(targetGroup, {
+                    await sock.sendMessage(config.groups.targetGroup, {
                         audio: buffer,
                         mimetype: msg.message.audioMessage?.mimetype || "audio/mpeg",
                         ptt: msg.message.audioMessage?.ptt || false
                     })
                 } else if (type === "documentMessage") {
-                    await sock.sendMessage(targetGroup, {
+                    await sock.sendMessage(config.groups.targetGroup, {
                         document: buffer,
                         mimetype: msg.message.documentMessage?.mimetype || "application/octet-stream",
                         fileName: msg.message.documentMessage?.fileName || "file"
