@@ -8,8 +8,13 @@ import { fileURLToPath } from "url"
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
-// Load configuration
-const config = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'))
+// Load configuration function
+function loadConfig() {
+    return JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'))
+}
+
+// Load initial configuration
+let config = loadConfig()
 
 // Rate limiting
 const messageCounts = new Map()
@@ -26,6 +31,9 @@ const stats = {
 
 // Global QR code storage
 let currentQRCode = null
+
+// Global bot instance for hot reload
+let globalSock = null
 
 // Helper functions
 function resetRateLimit() {
@@ -125,6 +133,9 @@ async function startBot() {
         auth: state,
         logger: P({ level: config.logging.level })
     })
+    
+    // Store global reference for hot reload
+    globalSock = sock
 
     sock.ev.on("creds.update", saveCreds)
 
@@ -362,8 +373,53 @@ async function detectCurrentGroup(type) {
     }
 }
 
+// Hot reload configuration function
+async function hotReloadConfig() {
+    try {
+        logMessage("info", "🔄 Hot reloading configuration...")
+        
+        // Reload configuration from file
+        const newConfig = loadConfig()
+        
+        // Update global config
+        config = newConfig
+        
+        // Log the changes
+        logMessage("info", `✅ Configuration reloaded - Source: ${config.groups.sourceGroup}, Target: ${config.groups.targetGroup}`)
+        
+        // Validate new group memberships if bot is connected
+        if (globalSock) {
+            setTimeout(async () => {
+                logMessage("info", "🔍 Validating updated group memberships...")
+                await validateGroupMembership(globalSock, config.groups.sourceGroup)
+                await validateGroupMembership(globalSock, config.groups.targetGroup)
+            }, 2000)
+        }
+        
+        return { success: true, message: 'Configuration reloaded successfully' }
+    } catch (error) {
+        logMessage("error", `❌ Hot reload failed: ${error.message}`)
+        return { error: error.message }
+    }
+}
+
 // Export functions for web interface
-export { currentQRCode, testGroupConnection, detectCurrentGroup }
+export { currentQRCode, testGroupConnection, detectCurrentGroup, hotReloadConfig }
+
+// Hot reload monitoring
+function watchForHotReload() {
+    setInterval(() => {
+        try {
+            if (fs.existsSync('hotreload.txt')) {
+                logMessage("info", "🔄 Hot reload signal detected...")
+                fs.unlinkSync('hotreload.txt')
+                hotReloadConfig()
+            }
+        } catch (error) {
+            // Ignore errors
+        }
+    }, 1000) // Check every 1 second for faster response
+}
 
 // Restart monitoring
 function watchForRestart() {
@@ -385,7 +441,8 @@ function watchForRestart() {
 // Start both WhatsApp bot and web interface
 startBot()
 
-// Start restart monitoring
+// Start monitoring
+watchForHotReload()
 watchForRestart()
 
 // Start web interface

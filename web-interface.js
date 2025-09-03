@@ -47,6 +47,8 @@ app.get('/', (req, res) => {
             .update-btn:hover { background: #218838; }
             .test-btn { background: #ffc107; color: #212529; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
             .test-btn:hover { background: #e0a800; }
+            .restart-btn { background: #dc3545; color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+            .restart-btn:hover { background: #c82333; }
             .action-buttons { margin: 20px 0; display: flex; gap: 10px; flex-wrap: wrap; }
             #currentStatus { background: #f8f9fa; padding: 15px; border-radius: 5px; border: 1px solid #dee2e6; }
             #currentStatus p { margin: 8px 0; }
@@ -78,7 +80,8 @@ app.get('/', (req, res) => {
                 </div>
                 
                 <div class="group-actions">
-                    <button onclick="updateGroupConfig()" class="update-btn">🔄 Update Groups & Restart Bot</button>
+                    <button onclick="updateGroupConfig()" class="update-btn">⚡ Update Groups (Hot Reload)</button>
+                    <button onclick="restartBot()" class="restart-btn">🔄 Full Restart Bot</button>
                     <button onclick="testGroupConnection()" class="test-btn">🧪 Test Group Connection</button>
                 </div>
             </div>
@@ -345,10 +348,10 @@ app.get('/', (req, res) => {
                     })
                     
                     if (response.ok) {
-                        showStatus('✅ Group configuration updated! Restarting bot...', 'success')
+                        showStatus('✅ Group configuration saved! Hot reloading...', 'success')
                         
-                        // Restart the bot immediately
-                        await restartBot()
+                        // Trigger hot reload
+                        await hotReloadConfig()
                     } else {
                         throw new Error('Failed to update configuration')
                     }
@@ -408,6 +411,28 @@ app.get('/', (req, res) => {
                     }
                 } catch (error) {
                     showStatus('Error detecting group: ' + error.message, 'error')
+                }
+            }
+            
+            async function hotReloadConfig() {
+                try {
+                    showStatus('⚡ Hot reloading configuration...', 'info')
+                    
+                    const response = await fetch('/api/hot-reload', { method: 'POST' })
+                    const result = await response.json()
+                    
+                    if (response.ok) {
+                        showStatus('✅ Configuration hot reloaded successfully!', 'success')
+                        
+                        // Update status display
+                        setTimeout(() => {
+                            loadConfig()
+                        }, 1000)
+                    } else {
+                        throw new Error(result.error || 'Hot reload failed')
+                    }
+                } catch (error) {
+                    showStatus('Error hot reloading: ' + error.message, 'error')
                 }
             }
             
@@ -501,6 +526,19 @@ app.post('/api/detect-group', async (req, res) => {
         // Import the bot instance to detect groups
         const { detectCurrentGroup } = await import('./index.js')
         const result = await detectCurrentGroup(type)
+        
+        res.json(result)
+    } catch (error) {
+        res.status(500).json({ error: error.message })
+    }
+})
+
+// Hot reload endpoint
+app.post('/api/hot-reload', async (req, res) => {
+    try {
+        // Import the hot reload function
+        const { hotReloadConfig } = await import('./index.js')
+        const result = await hotReloadConfig()
         
         res.json(result)
     } catch (error) {
