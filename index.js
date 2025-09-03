@@ -255,4 +255,11 @@ sock.ev.on("messages.upsert", async (m) => {
     }
 })
 }
+
+// Start both WhatsApp bot and web interface
 startBot()
+
+// Start web interface
+import('./web-interface.js').catch(err => {
+    console.error('Failed to start web interface:', err)
+})
