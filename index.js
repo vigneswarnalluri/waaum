@@ -1,8 +1,12 @@
-const { default: makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, downloadMediaMessage } = require("@whiskeysockets/baileys")
-const P = require("pino")
-const qrcode = require("qrcode-terminal")
-const fs = require("fs")
-const path = require("path")
+import { default as makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, downloadMediaMessage } from "@whiskeysockets/baileys"
+import P from "pino"
+import qrcode from "qrcode-terminal"
+import fs from "fs"
+import path from "path"
+import { fileURLToPath } from "url"
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 // Load configuration
 const config = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'))
