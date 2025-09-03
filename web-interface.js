@@ -347,10 +347,8 @@ app.get('/', (req, res) => {
                     if (response.ok) {
                         showStatus('✅ Group configuration updated! Restarting bot...', 'success')
                         
-                        // Restart the bot
-                        setTimeout(async () => {
-                            await restartBot()
-                        }, 1000)
+                        // Restart the bot immediately
+                        await restartBot()
                     } else {
                         throw new Error('Failed to update configuration')
                     }
@@ -443,8 +441,13 @@ app.post('/api/config', (req, res) => {
 })
 
 app.post('/api/restart', (req, res) => {
-    // In a real implementation, you'd restart the bot process
-    res.json({ success: true, message: 'Restart signal sent' })
+    try {
+        // Send restart signal by writing to a restart file
+        fs.writeFileSync('restart.txt', new Date().toISOString())
+        res.json({ success: true, message: 'Restart signal sent' })
+    } catch (error) {
+        res.status(500).json({ error: error.message })
+    }
 })
 
 app.get('/api/stats', (req, res) => {

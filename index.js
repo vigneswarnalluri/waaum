@@ -365,8 +365,28 @@ async function detectCurrentGroup(type) {
 // Export functions for web interface
 export { currentQRCode, testGroupConnection, detectCurrentGroup }
 
+// Restart monitoring
+function watchForRestart() {
+    setInterval(() => {
+        try {
+            if (fs.existsSync('restart.txt')) {
+                logMessage("info", "🔄 Restart signal detected, restarting bot...")
+                fs.unlinkSync('restart.txt')
+                setTimeout(() => {
+                    process.exit(0) // This will cause the process to restart
+                }, 1000)
+            }
+        } catch (error) {
+            // Ignore errors
+        }
+    }, 2000) // Check every 2 seconds
+}
+
 // Start both WhatsApp bot and web interface
 startBot()
+
+// Start restart monitoring
+watchForRestart()
 
 // Start web interface
 import('./web-interface.js').catch(err => {
