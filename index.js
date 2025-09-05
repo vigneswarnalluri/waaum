@@ -237,7 +237,7 @@ sock.ev.on("messages.upsert", async (m) => {
         // Handle text messages (including forwarded messages)
         let text = msg.message.conversation || msg.message.extendedTextMessage?.text
         
-        // Handle forwarded messages - extract content properly
+        // Handle forwarded messages - extract content and strip forwarding metadata
         if (isForwarded) {
             logMessage("debug", "Processing forwarded message")
             // For forwarded messages, extract the text content directly
@@ -248,7 +248,7 @@ sock.ev.on("messages.upsert", async (m) => {
             }
         }
         
-        // Handle quoted messages (replies)
+        // Handle quoted messages (replies) - strip context info to avoid forwarding detection
         if (msg.message.extendedTextMessage?.contextInfo?.quotedMessage) {
             const quotedMsg = msg.message.extendedTextMessage.contextInfo.quotedMessage
             const quotedText = quotedMsg.conversation || quotedMsg.extendedTextMessage?.text
@@ -269,23 +269,12 @@ sock.ev.on("messages.upsert", async (m) => {
             logMessage("info", `Forwarding text: ${text.substring(0, 50)}...`)
             logMessage("debug", `Sending to target group: ${config.groups.targetGroup}`)
             try {
-                // Get sender name for attribution
-                let senderName = "Unknown"
-                try {
-                    const contact = await sock.getContact(sender)
-                    senderName = contact.notify || contact.name || sender.split('@')[0]
-                } catch (e) {
-                    senderName = sender.split('@')[0]
+                // Create a completely clean message object to avoid forwarding detection
+                const cleanMessage = {
+                    text: text
                 }
                 
-                // Send as a new message with proper attribution to avoid version issues
-                const messageText = isForwarded 
-                    ? `📤 **Forwarded from ${senderName}:**\n${text}`
-                    : `👤 **${senderName}:**\n${text}`
-                
-                const result = await sock.sendMessage(config.groups.targetGroup, { 
-                    text: messageText
-                })
+                const result = await sock.sendMessage(config.groups.targetGroup, cleanMessage)
                 stats.messagesForwarded++
                 logMessage("info", `✅ Text message forwarded successfully to ${config.groups.targetGroup}`)
                 logMessage("debug", `Send result: ${JSON.stringify(result)}`)
@@ -312,7 +301,7 @@ sock.ev.on("messages.upsert", async (m) => {
             try {
                 logMessage("info", "Processing media message...")
                 
-                // Download media as buffer
+                // Download media as buffer and strip forwarding metadata
                 const buffer = await downloadMediaMessage(
                     msg,
                     "buffer",
@@ -333,51 +322,45 @@ sock.ev.on("messages.upsert", async (m) => {
                 const type = Object.keys(msg.message)[0]
                 logMessage("info", `Forwarding media: ${type}, Buffer size: ${buffer.length} bytes`)
                 
-                // Get sender name for attribution
-                let senderName = "Unknown"
-                try {
-                    const contact = await sock.getContact(sender)
-                    senderName = contact.notify || contact.name || sender.split('@')[0]
-                } catch (e) {
-                    senderName = sender.split('@')[0]
-                }
-                
-                // Create proper caption with sender attribution
-                const originalCaption = msg.message[type]?.caption || ""
-                const captionPrefix = isForwarded 
-                    ? `📤 **Forwarded from ${senderName}:**\n`
-                    : `👤 **${senderName}:**\n`
-                const finalCaption = captionPrefix + originalCaption
+                // Use original caption without attribution
+                const finalCaption = msg.message[type]?.caption || ""
         
+                // Create completely clean message objects to avoid forwarding detection
                 if (type === "imageMessage") {
-                    await sock.sendMessage(config.groups.targetGroup, {
+                    const cleanImageMessage = {
                         image: buffer,
-                        caption: finalCaption,
                         mimetype: msg.message.imageMessage?.mimetype || "image/jpeg"
-                    })
-                } else if (type === "videoMessage") {
-                    await sock.sendMessage(config.groups.targetGroup, {
-                        video: buffer,
-                        caption: finalCaption,
-                        mimetype: msg.message.videoMessage?.mimetype || "video/mp4"
-                    })
-                } else if (type === "audioMessage") {
-                    // For audio, send attribution as a separate text message first
-                    if (finalCaption.trim()) {
-                        await sock.sendMessage(config.groups.targetGroup, { text: finalCaption })
                     }
-                    await sock.sendMessage(config.groups.targetGroup, {
+                    if (finalCaption) {
+                        cleanImageMessage.caption = finalCaption
+                    }
+                    await sock.sendMessage(config.groups.targetGroup, cleanImageMessage)
+                } else if (type === "videoMessage") {
+                    const cleanVideoMessage = {
+                        video: buffer,
+                        mimetype: msg.message.videoMessage?.mimetype || "video/mp4"
+                    }
+                    if (finalCaption) {
+                        cleanVideoMessage.caption = finalCaption
+                    }
+                    await sock.sendMessage(config.groups.targetGroup, cleanVideoMessage)
+                } else if (type === "audioMessage") {
+                    const cleanAudioMessage = {
                         audio: buffer,
                         mimetype: msg.message.audioMessage?.mimetype || "audio/mpeg",
                         ptt: msg.message.audioMessage?.ptt || false
-                    })
+                    }
+                    await sock.sendMessage(config.groups.targetGroup, cleanAudioMessage)
                 } else if (type === "documentMessage") {
-                    await sock.sendMessage(config.groups.targetGroup, {
+                    const cleanDocumentMessage = {
                         document: buffer,
                         mimetype: msg.message.documentMessage?.mimetype || "application/octet-stream",
-                        fileName: msg.message.documentMessage?.fileName || "file",
-                        caption: finalCaption
-                    })
+                        fileName: msg.message.documentMessage?.fileName || "file"
+                    }
+                    if (finalCaption) {
+                        cleanDocumentMessage.caption = finalCaption
+                    }
+                    await sock.sendMessage(config.groups.targetGroup, cleanDocumentMessage)
                 }
         
                 stats.mediaForwarded++
