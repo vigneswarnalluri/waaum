@@ -186,17 +186,11 @@ async function startBot() {
                 const sourceValid = await validateGroupMembership(sock, config.groups.sourceGroup)
                 const targetValid = await validateGroupMembership(sock, config.groups.targetGroup)
                 
-                // Send test message if both groups are valid
+                // Log validation results
                 if (sourceValid && targetValid) {
-                    logMessage("info", "🧪 Sending test message to verify forwarding...")
-                    try {
-                        await sock.sendMessage(config.groups.targetGroup, { 
-                            text: "🤖 Bot is now active and ready to forward messages!" 
-                        })
-                        logMessage("info", "✅ Test message sent successfully")
-                    } catch (error) {
-                        logMessage("error", `❌ Failed to send test message: ${error.message}`)
-                    }
+                    logMessage("info", "✅ Both groups validated successfully - Bot is ready to forward messages")
+                } else {
+                    logMessage("warn", "⚠️ Group validation failed - Check bot membership in both groups")
                 }
             }, 5000) // Wait 5 seconds after connection
             
