@@ -183,14 +183,14 @@ async function startBot() {
             // Validate group memberships
             setTimeout(async () => {
                 logMessage("info", "🔍 Validating group memberships...")
-                const sourceValid = await validateGroupMembership(sock, sourceGroup)
-                const targetValid = await validateGroupMembership(sock, targetGroup)
+                const sourceValid = await validateGroupMembership(sock, config.groups.sourceGroup)
+                const targetValid = await validateGroupMembership(sock, config.groups.targetGroup)
                 
                 // Send test message if both groups are valid
                 if (sourceValid && targetValid) {
                     logMessage("info", "🧪 Sending test message to verify forwarding...")
                     try {
-                        await sock.sendMessage(targetGroup, { 
+                        await sock.sendMessage(config.groups.targetGroup, { 
                             text: "🤖 Bot is now active and ready to forward messages!" 
                         })
                         logMessage("info", "✅ Test message sent successfully")
