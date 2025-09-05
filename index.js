@@ -183,12 +183,20 @@ async function startBot() {
             // Validate group memberships
             setTimeout(async () => {
                 logMessage("info", "🔍 Validating group memberships...")
-                const sourceValid = await validateGroupMembership(sock, config.groups.sourceGroup)
-                const targetValid = await validateGroupMembership(sock, config.groups.targetGroup)
+                const sourceValid = await validateGroupMembership(sock, sourceGroup)
+                const targetValid = await validateGroupMembership(sock, targetGroup)
                 
-                // Groups validated successfully
+                // Send test message if both groups are valid
                 if (sourceValid && targetValid) {
-                    logMessage("info", "✅ Bot is ready to forward messages between groups")
+                    logMessage("info", "🧪 Sending test message to verify forwarding...")
+                    try {
+                        await sock.sendMessage(targetGroup, { 
+                            text: "🤖 Bot is now active and ready to forward messages!" 
+                        })
+                        logMessage("info", "✅ Test message sent successfully")
+                    } catch (error) {
+                        logMessage("error", `❌ Failed to send test message: ${error.message}`)
+                    }
                 }
             }, 5000) // Wait 5 seconds after connection
             
@@ -216,6 +224,13 @@ sock.ev.on("messages.upsert", async (m) => {
     logMessage("debug", `Expected source group: ${config.groups.sourceGroup}`)
     logMessage("debug", `Message type: ${Object.keys(msg.message)[0]}`)
     
+    // Check for forwarded message indicators
+    const messageType = Object.keys(msg.message)[0]
+    const isForwarded = msg.message[messageType]?.contextInfo?.forwardingScore > 0
+    if (isForwarded) {
+        logMessage("debug", "Message is forwarded (forwardingScore > 0)")
+    }
+    
     // Check if message is from expected source group
     if (from === config.groups.sourceGroup) {
         logMessage("info", `✅ Message from source group detected: ${from}`)
@@ -225,8 +240,30 @@ sock.ev.on("messages.upsert", async (m) => {
             return
         }
 
-        // Handle text messages
-        const text = msg.message.conversation || msg.message.extendedTextMessage?.text
+        // Handle text messages (including forwarded messages)
+        let text = msg.message.conversation || msg.message.extendedTextMessage?.text
+        
+        // Handle forwarded messages - extract content properly
+        if (isForwarded) {
+            logMessage("debug", "Processing forwarded message")
+            // For forwarded messages, extract the text content directly
+            if (msg.message.extendedTextMessage?.text) {
+                text = msg.message.extendedTextMessage.text
+            } else if (msg.message.conversation) {
+                text = msg.message.conversation
+            }
+        }
+        
+        // Handle quoted messages (replies)
+        if (msg.message.extendedTextMessage?.contextInfo?.quotedMessage) {
+            const quotedMsg = msg.message.extendedTextMessage.contextInfo.quotedMessage
+            const quotedText = quotedMsg.conversation || quotedMsg.extendedTextMessage?.text
+            if (quotedText) {
+                text = `${text}\n\n💬 Reply to: ${quotedText}`
+                logMessage("debug", "Processing quoted message")
+            }
+        }
+        
         if (text && config.settings.forwardText) {
             // Check if message should be forwarded based on filters
             if (!shouldForwardMessage(text, sender)) {
@@ -238,7 +275,23 @@ sock.ev.on("messages.upsert", async (m) => {
             logMessage("info", `Forwarding text: ${text.substring(0, 50)}...`)
             logMessage("debug", `Sending to target group: ${config.groups.targetGroup}`)
             try {
-                const result = await sock.sendMessage(config.groups.targetGroup, { text })
+                // Get sender name for attribution
+                let senderName = "Unknown"
+                try {
+                    const contact = await sock.getContact(sender)
+                    senderName = contact.notify || contact.name || sender.split('@')[0]
+                } catch (e) {
+                    senderName = sender.split('@')[0]
+                }
+                
+                // Send as a new message with proper attribution to avoid version issues
+                const messageText = isForwarded 
+                    ? `📤 **Forwarded from ${senderName}:**\n${text}`
+                    : `👤 **${senderName}:**\n${text}`
+                
+                const result = await sock.sendMessage(config.groups.targetGroup, { 
+                    text: messageText
+                })
                 stats.messagesForwarded++
                 logMessage("info", `✅ Text message forwarded successfully to ${config.groups.targetGroup}`)
                 logMessage("debug", `Send result: ${JSON.stringify(result)}`)
@@ -249,7 +302,7 @@ sock.ev.on("messages.upsert", async (m) => {
             }
         }
 
-        // Handle media messages
+        // Handle media messages (including forwarded media)
         const hasImage = msg.message.imageMessage && config.settings.forwardImages
         const hasVideo = msg.message.videoMessage && config.settings.forwardVideos
         const hasAudio = msg.message.audioMessage && config.settings.forwardAudio
@@ -285,20 +338,40 @@ sock.ev.on("messages.upsert", async (m) => {
                 // Detect type
                 const type = Object.keys(msg.message)[0]
                 logMessage("info", `Forwarding media: ${type}, Buffer size: ${buffer.length} bytes`)
+                
+                // Get sender name for attribution
+                let senderName = "Unknown"
+                try {
+                    const contact = await sock.getContact(sender)
+                    senderName = contact.notify || contact.name || sender.split('@')[0]
+                } catch (e) {
+                    senderName = sender.split('@')[0]
+                }
+                
+                // Create proper caption with sender attribution
+                const originalCaption = msg.message[type]?.caption || ""
+                const captionPrefix = isForwarded 
+                    ? `📤 **Forwarded from ${senderName}:**\n`
+                    : `👤 **${senderName}:**\n`
+                const finalCaption = captionPrefix + originalCaption
         
                 if (type === "imageMessage") {
                     await sock.sendMessage(config.groups.targetGroup, {
                         image: buffer,
-                        caption: msg.message.imageMessage?.caption || "",
+                        caption: finalCaption,
                         mimetype: msg.message.imageMessage?.mimetype || "image/jpeg"
                     })
                 } else if (type === "videoMessage") {
                     await sock.sendMessage(config.groups.targetGroup, {
                         video: buffer,
-                        caption: msg.message.videoMessage?.caption || "",
+                        caption: finalCaption,
                         mimetype: msg.message.videoMessage?.mimetype || "video/mp4"
                     })
                 } else if (type === "audioMessage") {
+                    // For audio, send attribution as a separate text message first
+                    if (finalCaption.trim()) {
+                        await sock.sendMessage(config.groups.targetGroup, { text: finalCaption })
+                    }
                     await sock.sendMessage(config.groups.targetGroup, {
                         audio: buffer,
                         mimetype: msg.message.audioMessage?.mimetype || "audio/mpeg",
@@ -308,7 +381,8 @@ sock.ev.on("messages.upsert", async (m) => {
                     await sock.sendMessage(config.groups.targetGroup, {
                         document: buffer,
                         mimetype: msg.message.documentMessage?.mimetype || "application/octet-stream",
-                        fileName: msg.message.documentMessage?.fileName || "file"
+                        fileName: msg.message.documentMessage?.fileName || "file",
+                        caption: finalCaption
                     })
                 }
         
