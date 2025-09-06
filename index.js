@@ -228,6 +228,17 @@ sock.ev.on("messages.upsert", async (m) => {
     // Check if message is from expected source group
     if (from === config.groups.sourceGroup) {
         logMessage("info", `✅ Message from source group detected: ${from}`)
+        logMessage("debug", `Message type: ${messageType}`)
+        
+        // Skip system messages that don't contain user content
+        if (messageType === 'senderKeyDistributionMessage' || 
+            messageType === 'protocolMessage' || 
+            messageType === 'reactionMessage' ||
+            messageType === 'ephemeralMessage') {
+            logMessage("debug", `Skipping system message type: ${messageType}`)
+            return
+        }
+        
         // Check rate limiting
         if (!checkRateLimit('message')) {
             logMessage("warn", "Rate limit exceeded for messages")
@@ -236,6 +247,8 @@ sock.ev.on("messages.upsert", async (m) => {
 
         // Handle text messages (including forwarded messages)
         let text = msg.message.conversation || msg.message.extendedTextMessage?.text
+        
+        logMessage("debug", `Processing message - Text content: ${text ? 'Yes' : 'No'}`)
         
         // Handle forwarded messages - extract content and strip forwarding metadata
         if (isForwarded) {
@@ -259,6 +272,7 @@ sock.ev.on("messages.upsert", async (m) => {
         }
         
         if (text && config.settings.forwardText) {
+            logMessage("info", `📝 Processing text message for forwarding...`)
             // Check if message should be forwarded based on filters
             if (!shouldForwardMessage(text, sender)) {
                 stats.messagesFiltered++
@@ -283,6 +297,10 @@ sock.ev.on("messages.upsert", async (m) => {
                 logMessage("error", `❌ Error forwarding text to ${config.groups.targetGroup}: ${err.message}`)
                 logMessage("error", `Error details: ${JSON.stringify(err)}`)
             }
+        } else if (!text) {
+            logMessage("debug", `No text content found in message type: ${messageType}`)
+        } else if (!config.settings.forwardText) {
+            logMessage("debug", `Text forwarding is disabled in config`)
         }
 
         // Handle media messages (including forwarded media)
