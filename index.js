@@ -189,17 +189,6 @@ async function startBot() {
                 // Log validation results
                 if (sourceValid && targetValid) {
                     logMessage("info", "✅ Both groups validated successfully - Bot is ready to forward messages")
-                    
-                    // Send a test message to verify target group access
-                    try {
-                        logMessage("info", "🧪 Testing target group access...")
-                        await sock.sendMessage(config.groups.targetGroup, { 
-                            text: "🤖 Bot test - Ready to forward messages!" 
-                        })
-                        logMessage("info", "✅ Test message sent successfully to target group")
-                    } catch (error) {
-                        logMessage("error", `❌ Failed to send test message to target group: ${error.message}`)
-                    }
                 } else {
                     logMessage("warn", "⚠️ Group validation failed - Check bot membership in both groups")
                 }
@@ -360,10 +349,11 @@ sock.ev.on("messages.upsert", async (m) => {
     logMessage("debug", `Expected source group: ${config.groups.sourceGroup}`)
     logMessage("debug", `Message type: ${Object.keys(msg.message)[0]}`)
     
-    // Log ALL message types for debugging
+    // Log ALL message types for debugging - from ANY group
+    logMessage("info", `🔍 MESSAGE FROM: ${from}`)
+    logMessage("info", `🔍 ALL MESSAGE TYPES: ${JSON.stringify(Object.keys(msg.message))}`)
     if (from === config.groups.sourceGroup) {
-        logMessage("info", `🔍 ALL MESSAGE TYPES: ${JSON.stringify(Object.keys(msg.message))}`)
-        logMessage("info", `🔍 FULL MESSAGE STRUCTURE: ${JSON.stringify(msg.message, null, 2)}`)
+        logMessage("info", `🔍 SOURCE GROUP MESSAGE - FULL STRUCTURE: ${JSON.stringify(msg.message, null, 2)}`)
     }
     
     // Check for forwarded message indicators
@@ -381,10 +371,23 @@ sock.ev.on("messages.upsert", async (m) => {
         // Skip system messages that don't contain user content
         if (messageType === 'senderKeyDistributionMessage' || 
             messageType === 'protocolMessage' || 
-            messageType === 'reactionMessage' ||
-            messageType === 'ephemeralMessage') {
+            messageType === 'reactionMessage') {
             logMessage("debug", `Skipping system message type: ${messageType}`)
             return
+        }
+        
+        // Handle ephemeral messages (disappearing messages)
+        if (messageType === 'ephemeralMessage') {
+            logMessage("debug", "Processing ephemeral message - extracting content")
+            const ephemeralContent = msg.message.ephemeralMessage?.message
+            if (ephemeralContent) {
+                // Process the ephemeral message content
+                await processActualMessage(ephemeralContent, msg, sock)
+                return
+            } else {
+                logMessage("debug", "No content found in ephemeral message")
+                return
+            }
         }
         
         // Handle messageContextInfo - extract the actual message content
