@@ -206,7 +206,138 @@ async function startBot() {
     // Log configuration for debugging
     logMessage("info", `Bot configured - Source Group: ${config.groups.sourceGroup}, Target Group: ${config.groups.targetGroup}`)
 
-  // Inside the messages.upsert event
+  // Function to process actual message content from messageContextInfo
+async function processActualMessage(actualMessage, originalMsg, sock) {
+    const from = originalMsg.key.remoteJid
+    const sender = originalMsg.key.participant || originalMsg.key.remoteJid
+    
+    logMessage("debug", "Processing actual message content from messageContextInfo")
+    logMessage("debug", `Actual message structure: ${JSON.stringify(Object.keys(actualMessage))}`)
+    
+    // Extract text content from the actual message - try multiple formats
+    let text = actualMessage.conversation || 
+               actualMessage.extendedTextMessage?.text || 
+               actualMessage.textMessage?.text ||
+               actualMessage.message?.conversation ||
+               actualMessage.message?.extendedTextMessage?.text
+    
+    logMessage("debug", `Extracted text content: "${text}"`)
+    logMessage("debug", `Text content type: ${typeof text}, Length: ${text ? text.length : 0}`)
+    
+    // If still no text, log the full structure for debugging
+    if (!text) {
+        logMessage("debug", `Full actualMessage structure: ${JSON.stringify(actualMessage, null, 2)}`)
+    }
+    
+    if (text && config.settings.forwardText) {
+        logMessage("info", `📝 Processing extracted text message for forwarding...`)
+        
+        // Check if message should be forwarded based on filters
+        if (!shouldForwardMessage(text, sender)) {
+            stats.messagesFiltered++
+            logMessage("info", `Message filtered out: ${text.substring(0, 50)}...`)
+            return
+        }
+        
+        logMessage("info", `Forwarding extracted text: ${text.substring(0, 50)}...`)
+        try {
+            const cleanMessage = { text: text }
+            const result = await sock.sendMessage(config.groups.targetGroup, cleanMessage)
+            stats.messagesForwarded++
+            logMessage("info", `✅ Extracted text message forwarded successfully`)
+        } catch (err) {
+            stats.errors++
+            logMessage("error", `❌ Error forwarding extracted text: ${err.message}`)
+        }
+    } else if (!text) {
+        logMessage("debug", `No text content found in extracted message`)
+    }
+    
+    // Handle media in the actual message
+    const hasImage = actualMessage.imageMessage && config.settings.forwardImages
+    const hasVideo = actualMessage.videoMessage && config.settings.forwardVideos
+    const hasAudio = actualMessage.audioMessage && config.settings.forwardAudio
+    const hasDocument = actualMessage.documentMessage && config.settings.forwardDocuments
+    
+    logMessage("debug", `Media detection - Image: ${hasImage}, Video: ${hasVideo}, Audio: ${hasAudio}, Document: ${hasDocument}`)
+    
+    if (hasImage || hasVideo || hasAudio || hasDocument) {
+        logMessage("info", `📸 Processing extracted media message from messageContextInfo...`)
+        if (!checkRateLimit('media')) {
+            logMessage("warn", "Rate limit exceeded for media")
+            return
+        }
+        
+        try {
+            logMessage("info", "Processing extracted media message...")
+            
+            const buffer = await downloadMediaMessage(
+                { ...originalMsg, message: actualMessage },
+                "buffer",
+                { },
+                {
+                    logger: P({ level: config.logging.level }),
+                    reuploadRequest: sock.updateMediaMessage
+                }
+            )
+            
+            if (!buffer || buffer.length === 0) {
+                logMessage("error", "❌ Invalid or empty media buffer")
+                return
+            }
+            
+            const type = Object.keys(actualMessage)[0]
+            const finalCaption = actualMessage[type]?.caption || ""
+            
+            logMessage("info", `📸 Forwarding extracted ${type} with caption: ${finalCaption ? 'Yes' : 'No'}`)
+            
+            if (type === "imageMessage") {
+                const cleanImageMessage = {
+                    image: buffer,
+                    mimetype: actualMessage.imageMessage?.mimetype || "image/jpeg"
+                }
+                if (finalCaption) {
+                    cleanImageMessage.caption = finalCaption
+                }
+                await sock.sendMessage(config.groups.targetGroup, cleanImageMessage)
+            } else if (type === "videoMessage") {
+                const cleanVideoMessage = {
+                    video: buffer,
+                    mimetype: actualMessage.videoMessage?.mimetype || "video/mp4"
+                }
+                if (finalCaption) {
+                    cleanVideoMessage.caption = finalCaption
+                }
+                await sock.sendMessage(config.groups.targetGroup, cleanVideoMessage)
+            } else if (type === "audioMessage") {
+                await sock.sendMessage(config.groups.targetGroup, {
+                    audio: buffer,
+                    mimetype: actualMessage.audioMessage?.mimetype || "audio/mpeg",
+                    ptt: actualMessage.audioMessage?.ptt || false
+                })
+            } else if (type === "documentMessage") {
+                const cleanDocumentMessage = {
+                    document: buffer,
+                    mimetype: actualMessage.documentMessage?.mimetype || "application/octet-stream",
+                    fileName: actualMessage.documentMessage?.fileName || "file"
+                }
+                if (finalCaption) {
+                    cleanDocumentMessage.caption = finalCaption
+                }
+                await sock.sendMessage(config.groups.targetGroup, cleanDocumentMessage)
+            }
+            
+            stats.mediaForwarded++
+            logMessage("info", "✅ Extracted media forwarded successfully")
+            
+        } catch (err) {
+            stats.errors++
+            logMessage("error", `❌ Error forwarding extracted media: ${err.message}`)
+        }
+    }
+}
+
+// Inside the messages.upsert event
 sock.ev.on("messages.upsert", async (m) => {
     const msg = m.messages[0]
     if (!msg.message) return
@@ -237,6 +368,21 @@ sock.ev.on("messages.upsert", async (m) => {
             messageType === 'ephemeralMessage') {
             logMessage("debug", `Skipping system message type: ${messageType}`)
             return
+        }
+        
+        // Handle messageContextInfo - extract the actual message content
+        if (messageType === 'messageContextInfo') {
+            logMessage("debug", "Processing messageContextInfo - extracting actual message content")
+            // messageContextInfo contains the actual message in its context
+            const actualMessage = msg.message.messageContextInfo?.quotedMessage
+            if (actualMessage) {
+                // Process the actual message content
+                await processActualMessage(actualMessage, msg, sock)
+                return
+            } else {
+                logMessage("debug", "No quoted message found in messageContextInfo")
+                return
+            }
         }
         
         // Check rate limiting
