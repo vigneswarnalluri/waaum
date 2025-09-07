@@ -189,6 +189,17 @@ async function startBot() {
                 // Log validation results
                 if (sourceValid && targetValid) {
                     logMessage("info", "✅ Both groups validated successfully - Bot is ready to forward messages")
+                    
+                    // Send a test message to verify target group access
+                    try {
+                        logMessage("info", "🧪 Testing target group access...")
+                        await sock.sendMessage(config.groups.targetGroup, { 
+                            text: "🤖 Bot test - Ready to forward messages!" 
+                        })
+                        logMessage("info", "✅ Test message sent successfully to target group")
+                    } catch (error) {
+                        logMessage("error", `❌ Failed to send test message to target group: ${error.message}`)
+                    }
                 } else {
                     logMessage("warn", "⚠️ Group validation failed - Check bot membership in both groups")
                 }
@@ -349,6 +360,12 @@ sock.ev.on("messages.upsert", async (m) => {
     logMessage("debug", `Expected source group: ${config.groups.sourceGroup}`)
     logMessage("debug", `Message type: ${Object.keys(msg.message)[0]}`)
     
+    // Log ALL message types for debugging
+    if (from === config.groups.sourceGroup) {
+        logMessage("info", `🔍 ALL MESSAGE TYPES: ${JSON.stringify(Object.keys(msg.message))}`)
+        logMessage("info", `🔍 FULL MESSAGE STRUCTURE: ${JSON.stringify(msg.message, null, 2)}`)
+    }
+    
     // Check for forwarded message indicators
     const messageType = Object.keys(msg.message)[0]
     const isForwarded = msg.message[messageType]?.contextInfo?.forwardingScore > 0
@@ -434,10 +451,13 @@ sock.ev.on("messages.upsert", async (m) => {
                     text: text
                 }
                 
+                logMessage("info", `🚀 Attempting to send message to target group: ${config.groups.targetGroup}`)
+                logMessage("info", `🚀 Message content: "${text}"`)
+                
                 const result = await sock.sendMessage(config.groups.targetGroup, cleanMessage)
                 stats.messagesForwarded++
                 logMessage("info", `✅ Text message forwarded successfully to ${config.groups.targetGroup}`)
-                logMessage("debug", `Send result: ${JSON.stringify(result)}`)
+                logMessage("info", `🚀 Send result: ${JSON.stringify(result)}`)
             } catch (err) {
                 stats.errors++
                 logMessage("error", `❌ Error forwarding text to ${config.groups.targetGroup}: ${err.message}`)
@@ -447,6 +467,12 @@ sock.ev.on("messages.upsert", async (m) => {
             logMessage("debug", `No text content found in message type: ${messageType}`)
         } else if (!config.settings.forwardText) {
             logMessage("debug", `Text forwarding is disabled in config`)
+        }
+        
+        // Catch-all handler for any unhandled message types
+        if (!text && !hasImage && !hasVideo && !hasAudio && !hasDocument) {
+            logMessage("warn", `⚠️ UNHANDLED MESSAGE TYPE: ${messageType}`)
+            logMessage("warn", `⚠️ Message structure: ${JSON.stringify(msg.message, null, 2)}`)
         }
 
         // Handle media messages (including forwarded media)
