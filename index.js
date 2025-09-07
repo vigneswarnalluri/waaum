@@ -368,16 +368,8 @@ sock.ev.on("messages.upsert", async (m) => {
         logMessage("info", `✅ Message from source group detected: ${from}`)
         logMessage("debug", `Message type: ${messageType}`)
         
-        // Skip system messages that don't contain user content
-        if (messageType === 'senderKeyDistributionMessage' || 
-            messageType === 'protocolMessage' || 
-            messageType === 'reactionMessage') {
-            logMessage("debug", `Skipping system message type: ${messageType}`)
-            return
-        }
-        
-        // Handle ephemeral messages (disappearing messages)
-        if (messageType === 'ephemeralMessage') {
+        // Check for ephemeral messages first (even if primary type is system message)
+        if (msg.message.ephemeralMessage) {
             logMessage("debug", "Processing ephemeral message - extracting content")
             const ephemeralContent = msg.message.ephemeralMessage?.message
             if (ephemeralContent) {
@@ -388,6 +380,14 @@ sock.ev.on("messages.upsert", async (m) => {
                 logMessage("debug", "No content found in ephemeral message")
                 return
             }
+        }
+        
+        // Skip system messages that don't contain user content
+        if (messageType === 'senderKeyDistributionMessage' || 
+            messageType === 'protocolMessage' || 
+            messageType === 'reactionMessage') {
+            logMessage("debug", `Skipping system message type: ${messageType}`)
+            return
         }
         
         // Handle messageContextInfo - extract the actual message content
