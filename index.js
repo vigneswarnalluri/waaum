@@ -357,7 +357,24 @@ sock.ev.on("messages.upsert", async (m) => {
     }
     
     // Check for forwarded message indicators
-    const messageType = Object.keys(msg.message)[0]
+    const allKeys = Object.keys(msg.message)
+    const userContentTypes = [
+        'conversation',
+        'extendedTextMessage',
+        'imageMessage',
+        'videoMessage',
+        'audioMessage',
+        'documentMessage',
+        'stickerMessage',
+        'contactMessage',
+        'locationMessage'
+    ]
+    const wrapperTypes = ['messageContextInfo', 'ephemeralMessage']
+    const systemTypes = ['senderKeyDistributionMessage', 'protocolMessage', 'reactionMessage']
+
+    const preferredTypes = [...userContentTypes, ...wrapperTypes]
+    const originalFirstType = allKeys[0]
+    const messageType = allKeys.find(k => preferredTypes.includes(k)) || originalFirstType
     const isForwarded = msg.message[messageType]?.contextInfo?.forwardingScore > 0
     if (isForwarded) {
         logMessage("debug", "Message is forwarded (forwardingScore > 0)")
@@ -382,11 +399,10 @@ sock.ev.on("messages.upsert", async (m) => {
             }
         }
         
-        // Skip system messages that don't contain user content
-        if (messageType === 'senderKeyDistributionMessage' || 
-            messageType === 'protocolMessage' || 
-            messageType === 'reactionMessage') {
-            logMessage("debug", `Skipping system message type: ${messageType}`)
+        // Skip system messages only if they don't contain any user content
+        const hasUserContentAlongside = allKeys.some(k => userContentTypes.includes(k))
+        if (systemTypes.includes(originalFirstType) && !hasUserContentAlongside) {
+            logMessage("debug", `Skipping system message type without content: ${originalFirstType}`)
             return
         }
         
@@ -472,18 +488,18 @@ sock.ev.on("messages.upsert", async (m) => {
             logMessage("debug", `Text forwarding is disabled in config`)
         }
         
-        // Catch-all handler for any unhandled message types
-        if (!text && !hasImage && !hasVideo && !hasAudio && !hasDocument) {
-            logMessage("warn", `⚠️ UNHANDLED MESSAGE TYPE: ${messageType}`)
-            logMessage("warn", `⚠️ Message structure: ${JSON.stringify(msg.message, null, 2)}`)
-        }
-
         // Handle media messages (including forwarded media)
         const hasImage = msg.message.imageMessage && config.settings.forwardImages
         const hasVideo = msg.message.videoMessage && config.settings.forwardVideos
         const hasAudio = msg.message.audioMessage && config.settings.forwardAudio
         const hasDocument = msg.message.documentMessage && config.settings.forwardDocuments
         
+        // Catch-all handler for any unhandled message types
+        if (!text && !hasImage && !hasVideo && !hasAudio && !hasDocument) {
+            logMessage("warn", `⚠️ UNHANDLED MESSAGE TYPE: ${messageType}`)
+            logMessage("warn", `⚠️ Message structure: ${JSON.stringify(msg.message, null, 2)}`)
+        }
+
         if (hasImage || hasVideo || hasAudio || hasDocument) {
             // Check rate limiting for media
             if (!checkRateLimit('media')) {
