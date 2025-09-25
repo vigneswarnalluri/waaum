@@ -19,6 +19,8 @@ let config = loadConfig()
 // Rate limiting
 const messageCounts = new Map()
 const mediaCounts = new Map()
+// Track processed message IDs to avoid double-processing
+const processedMessageIds = new Map()
 
 // Statistics
 const stats = {
@@ -339,6 +341,12 @@ async function processActualMessage(actualMessage, originalMsg, sock) {
 
 // Inside the messages.upsert event
 sock.ev.on("messages.upsert", async (m) => {
+    // Process only notification upserts to avoid duplicates from history/append
+    if (m.type && m.type !== 'notify') {
+        logMessage("debug", `Skipping upsert of type: ${m.type}`)
+        return
+    }
+
     const msg = m.messages[0]
     if (!msg.message) return
     const from = msg.key.remoteJid
@@ -384,6 +392,25 @@ sock.ev.on("messages.upsert", async (m) => {
     if (from === config.groups.sourceGroup) {
         logMessage("info", `✅ Message from source group detected: ${from}`)
         logMessage("debug", `Message type: ${messageType}`)
+
+        // De-duplicate by WhatsApp message ID
+        const messageId = msg.key.id
+        if (messageId) {
+            if (processedMessageIds.has(messageId)) {
+                logMessage("debug", `Duplicate message detected, ignoring: ${messageId}`)
+                return
+            }
+            processedMessageIds.set(messageId, Date.now())
+            // Simple size cap to keep memory bounded
+            if (processedMessageIds.size > 2000) {
+                let removed = 0
+                for (const k of processedMessageIds.keys()) {
+                    processedMessageIds.delete(k)
+                    removed++
+                    if (removed >= 500) break
+                }
+            }
+        }
         
         // Check for ephemeral messages first (even if primary type is system message)
         if (msg.message.ephemeralMessage) {
