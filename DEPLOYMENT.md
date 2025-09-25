@@ -32,7 +32,7 @@ curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
 sudo apt-get install -y nodejs
 
 # Clone your bot
-git clone your-repo-url
+git clone https://github.com/vigneswarnalluri/whatsapp-bot.git
 cd whatsapp-bot
 
 # Install dependencies
@@ -54,7 +54,7 @@ curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
 sudo apt-get install -y nodejs
 
 # Clone and setup bot
-git clone your-repo-url
+git clone https://github.com/vigneswarnalluri/whatsapp-bot.git
 cd whatsapp-bot
 npm install
 

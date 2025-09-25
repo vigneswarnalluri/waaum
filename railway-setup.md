@@ -17,7 +17,7 @@ git add .
 git commit -m "Initial WhatsApp bot commit"
 
 # Create GitHub repo and push
-git remote add origin https://github.com/yourusername/whatsapp-bot.git
+git remote add origin https://github.com/vigneswarnalluri/whatsapp-bot.git
 git push -u origin main
 ```
 
