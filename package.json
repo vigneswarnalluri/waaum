@@ -1,0 +1,29 @@
+{
+  "name": "whatsapp-bot",
+  "version": "2.0.0",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "build": "echo 'No build step required'",
+    "web": "node web-interface.js",
+    "dev": "node index.js & node web-interface.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "whatsapp",
+    "bot",
+    "forwarding",
+    "automation"
+  ],
+  "author": "",
+  "license": "ISC",
+  "description": "Advanced WhatsApp message forwarding bot with filtering, rate limiting, and web interface",
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.19",
+    "express": "^4.21.2",
+    "pino": "^9.9.1",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0"
+  }
+}

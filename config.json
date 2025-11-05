@@ -1,0 +1,33 @@
+{
+  "groups": {
+    "sourceGroup": "120363309523199466@g.us",
+    "targetGroup": "120363417347954807@g.us"
+  },
+  "settings": {
+    "forwardText": true,
+    "forwardImages": true,
+    "forwardVideos": true,
+    "forwardAudio": true,
+    "forwardDocuments": true,
+    "forwardStickers": false,
+    "forwardContacts": false,
+    "forwardLocations": false
+  },
+  "filters": {
+    "enabled": false,
+    "keywords": [],
+    "excludeKeywords": [],
+    "allowedUsers": [],
+    "blockedUsers": []
+  },
+  "rateLimit": {
+    "enabled": true,
+    "maxMessagesPerMinute": 10,
+    "maxMediaPerMinute": 5
+  },
+  "logging": {
+    "level": "info",
+    "saveToFile": true,
+    "logFile": "bot.log"
+  }
+}
