@@ -569,9 +569,23 @@ app.get('/qr', (req, res) => {
         <div class="container">
             <h1>🤖 WhatsApp Bot QR Code</h1>
             <div class="instructions">
-                <p>1. Open WhatsApp on your phone</p>
-                <p>2. Go to Settings → Linked Devices → Link a Device</p>
-                <p>3. Scan the QR code below</p>
+                <h3>📱 Connection Steps:</h3>
+                <ol style="text-align: left; margin: 10px 0;">
+                    <li>Open WhatsApp on your phone</li>
+                    <li>Go to <strong>Settings → Linked Devices</strong></li>
+                    <li><strong>If you see an error:</strong> First unlink any existing "WhatsApp Bot" device, then continue</li>
+                    <li>Tap <strong>"Link a Device"</strong></li>
+                    <li>Scan the QR code below (expires in ~20 seconds)</li>
+                </ol>
+                <div style="background: #fff3cd; padding: 10px; border-radius: 5px; margin: 10px 0; text-align: left;">
+                    <strong>⚠️ Having connection issues?</strong>
+                    <ul style="margin: 5px 0; padding-left: 20px;">
+                        <li>Make sure you unlinked the old device from WhatsApp settings first</li>
+                        <li>Wait 10-15 seconds after unlinking before scanning</li>
+                        <li>QR codes expire quickly - scan as soon as it appears</li>
+                        <li>Check that your phone has a stable internet connection</li>
+                    </ul>
+                </div>
             </div>
             <div id="status" class="status waiting">
                 Waiting for QR code...

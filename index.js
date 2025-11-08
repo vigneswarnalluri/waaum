@@ -135,13 +135,14 @@ async function startBot() {
             version,
             auth: state,
             logger: P({ level: config.logging.level }),
-            printQRInTerminal: true,
             browser: ['WhatsApp Bot', 'Chrome', '10.0.0'],
             getMessage: async (key) => {
                 return {
                     conversation: "Message not found"
                 }
-            }
+            },
+            // Mark as online to appear as active device
+            markOnlineOnConnect: true
         })
         
         // Store global reference for hot reload
@@ -226,19 +227,43 @@ async function startBot() {
                 // Handle disconnection
                 const statusCode = lastDisconnect?.error?.output?.statusCode
                 const shouldReconnect = lastDisconnect?.error?.output?.shouldReconnect
+                const errorData = lastDisconnect?.error?.data
                 
                 logMessage("error", `❌ Connection closed - Status: ${statusCode || 'unknown'}`)
                 console.log(`❌ Connection closed`)
                 
+                // Check for device_removed conflict
+                const isDeviceRemoved = errorData?.content?.some?.(
+                    item => item?.tag === "conflict" && item?.attrs?.type === "device_removed"
+                ) || errorData?.attrs?.code === "401"
+                
                 if (lastDisconnect?.error) {
                     logMessage("error", `Disconnect error: ${JSON.stringify(lastDisconnect.error)}`)
-                    console.log(`Error details:`, lastDisconnect.error)
+                    if (isDeviceRemoved) {
+                        console.log("=".repeat(60))
+                        console.log("⚠️  DEVICE REMOVED CONFLICT DETECTED")
+                        console.log("=".repeat(60))
+                        console.log("")
+                        console.log("📱 ACTION REQUIRED ON YOUR PHONE:")
+                        console.log("")
+                        console.log("1. Open WhatsApp on your phone")
+                        console.log("2. Go to: Settings → Linked Devices")
+                        console.log("3. Find this device (WhatsApp Bot) in the list")
+                        console.log("4. Tap on it and select 'Unlink Device' or 'Logout'")
+                        console.log("5. Wait 10-15 seconds")
+                        console.log("6. Go back to 'Link a Device' and scan the NEW QR code")
+                        console.log("")
+                        console.log("🔗 View QR code at: https://waaum.onrender.com/qr")
+                        console.log("")
+                        console.log("=".repeat(60))
+                    }
                 }
                 
                 // Handle specific error codes
-                if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
+                if (isDeviceRemoved || statusCode === DisconnectReason.loggedOut || statusCode === 401) {
                     logMessage("error", "❌ Logged out from WhatsApp - Authentication required")
                     console.log("❌ Logged out - Need to scan QR code again")
+                    
                     // Clear authentication to force new QR code
                     try {
                         if (fs.existsSync("auth_info")) {
@@ -249,26 +274,31 @@ async function startBot() {
                     } catch (err) {
                         logMessage("error", `Failed to clear auth: ${err.message}`)
                     }
-                } else if (statusCode === DisconnectReason.restartRequired) {
+                    
+                    // Wait longer before reconnecting for device_removed to allow user to unlink
+                    const reconnectDelay = isDeviceRemoved ? 15000 : 5000
+                    logMessage("info", `🔄 Reconnecting in ${reconnectDelay/1000} seconds...`)
+                    console.log(`🔄 Reconnecting in ${reconnectDelay/1000} seconds...`)
+                    console.log("📱 Please unlink the device from your phone's WhatsApp settings first!")
+                    setTimeout(startBot, reconnectDelay)
+                    return
+                } else if (statusCode === DisconnectReason.restartRequired || statusCode === 515) {
                     logMessage("info", "🔄 Restart required - reconnecting...")
-                    console.log("🔄 Restart required")
-                } else if (statusCode === DisconnectReason.timedOut) {
+                    console.log("🔄 Restart required - reconnecting...")
+                } else if (statusCode === DisconnectReason.timedOut || statusCode === 408) {
                     logMessage("warn", "⏱️ Connection timed out - retrying...")
-                    console.log("⏱️ Connection timed out")
-                } else if (statusCode === 408) {
-                    logMessage("warn", "⏱️ Connection timeout - retrying...")
-                    console.log("⏱️ Connection timeout")
+                    console.log("⏱️ Connection timed out - retrying...")
                 } else if (!shouldReconnect) {
                     logMessage("error", "❌ Should not reconnect - manual intervention required")
                     console.log("❌ Should not reconnect - check your phone's internet connection")
                 }
                 
                 // Reconnect if needed
-                if (shouldReconnect !== false) {
+                if (shouldReconnect !== false && !isDeviceRemoved) {
                     logMessage("info", "🔄 Reconnecting in 5 seconds...")
                     console.log("🔄 Reconnecting in 5 seconds...")
                     setTimeout(startBot, 5000)
-                } else {
+                } else if (!isDeviceRemoved) {
                     logMessage("error", "❌ Cannot reconnect automatically - please restart manually")
                     console.log("❌ Cannot reconnect - please check your configuration and restart")
                 }
