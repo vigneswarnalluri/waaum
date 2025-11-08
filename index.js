@@ -37,6 +37,13 @@ let currentQRCode = null
 // Global bot instance for hot reload
 let globalSock = null
 
+// Global connection status tracking
+let connectionStatus = {
+    connected: false,
+    lastUpdate: null,
+    connectionState: 'disconnected'
+}
+
 // Helper functions
 function resetRateLimit() {
     messageCounts.clear()
@@ -194,9 +201,16 @@ async function startBot() {
             
             // Handle connection states
             if (connection === "connecting") {
+                connectionStatus.connected = false
+                connectionStatus.connectionState = 'connecting'
+                connectionStatus.lastUpdate = new Date()
                 logMessage("info", "🔄 Connecting to WhatsApp...")
                 console.log("🔄 Connecting to WhatsApp...")
             } else if (connection === "open") {
+                connectionStatus.connected = true
+                connectionStatus.connectionState = 'connected'
+                connectionStatus.lastUpdate = new Date()
+                
                 logMessage("info", "✅ Connected to WhatsApp successfully")
                 console.log("✅ Connected to WhatsApp successfully!")
                 if (isNewLogin) {
@@ -204,8 +218,32 @@ async function startBot() {
                     console.log("🆕 New login detected")
                 }
                 
+                console.log("=".repeat(60))
+                console.log("📱 IMPORTANT: Refresh WhatsApp on your phone!")
+                console.log("=".repeat(60))
+                console.log("")
+                console.log("The bot is connected, but your phone may not show it yet.")
+                console.log("To see the connection on your phone:")
+                console.log("")
+                console.log("1. Open WhatsApp on your phone")
+                console.log("2. Go to: Settings → Linked Devices")
+                console.log("3. Pull down to REFRESH the screen")
+                console.log("4. The device should appear as 'WhatsApp Bot' or 'Chrome'")
+                console.log("")
+                console.log("If it doesn't appear after refreshing, wait 30 seconds and refresh again.")
+                console.log("")
+                console.log("=".repeat(60))
+                
                 // Clear QR code once connected
                 currentQRCode = null
+                
+                // Send a presence update to help phone recognize the connection
+                try {
+                    await sock.sendPresenceUpdate('available')
+                    logMessage("info", "📡 Sent presence update to notify phone")
+                } catch (err) {
+                    logMessage("warn", `Failed to send presence update: ${err.message}`)
+                }
                 
                 // Validate group memberships
                 setTimeout(async () => {
@@ -221,10 +259,24 @@ async function startBot() {
                     }
                 }, 5000) // Wait 5 seconds after connection
                 
+                // Send periodic presence updates to keep connection visible
+                setInterval(async () => {
+                    try {
+                        await sock.sendPresenceUpdate('available')
+                        logMessage("debug", "📡 Periodic presence update sent")
+                    } catch (err) {
+                        // Silent fail for periodic updates
+                    }
+                }, 60000) // Every minute
+                
                 // Reset rate limiting every hour
                 setInterval(resetRateLimit, 60 * 60 * 1000)
             } else if (connection === "close") {
                 // Handle disconnection
+                connectionStatus.connected = false
+                connectionStatus.connectionState = 'disconnected'
+                connectionStatus.lastUpdate = new Date()
+                
                 const statusCode = lastDisconnect?.error?.output?.statusCode
                 const shouldReconnect = lastDisconnect?.error?.output?.shouldReconnect
                 const errorData = lastDisconnect?.error?.data
@@ -790,7 +842,7 @@ async function hotReloadConfig() {
 }
 
 // Export functions for web interface
-export { currentQRCode, testGroupConnection, detectCurrentGroup, hotReloadConfig }
+export { currentQRCode, connectionStatus, testGroupConnection, detectCurrentGroup, hotReloadConfig }
 
 // Hot reload monitoring
 function watchForHotReload() {

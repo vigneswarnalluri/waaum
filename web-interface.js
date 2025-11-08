@@ -495,9 +495,24 @@ app.get('/api/stats', (req, res) => {
 // QR Code API endpoint
 app.get('/api/qr', async (req, res) => {
     try {
-        // Import the currentQRCode from the main bot file
-        const { currentQRCode } = await import('./index.js')
-        res.json({ qrCode: currentQRCode })
+        // Import the currentQRCode and connectionStatus from the main bot file
+        const { currentQRCode, connectionStatus } = await import('./index.js')
+        res.json({ 
+            qrCode: currentQRCode,
+            connectionStatus: connectionStatus || { connected: false, connectionState: 'unknown' }
+        })
+    } catch (error) {
+        res.status(500).json({ error: error.message })
+    }
+})
+
+// Connection status API endpoint
+app.get('/api/status', async (req, res) => {
+    try {
+        const { connectionStatus } = await import('./index.js')
+        res.json({ 
+            connectionStatus: connectionStatus || { connected: false, connectionState: 'unknown' }
+        })
     } catch (error) {
         res.status(500).json({ error: error.message })
     }
@@ -590,6 +605,20 @@ app.get('/qr', (req, res) => {
             <div id="status" class="status waiting">
                 Waiting for QR code...
             </div>
+            <div id="connection-status" style="display: none; background: #d1ecf1; padding: 15px; border-radius: 5px; margin: 15px 0; text-align: left;">
+                <h4 style="margin: 0 0 10px 0;">📡 Connection Status</h4>
+                <p style="margin: 5px 0;"><strong>Status:</strong> <span id="status-text">Checking...</span></p>
+                <p style="margin: 5px 0;"><strong>Last Update:</strong> <span id="status-time">-</span></p>
+                <div style="background: #fff3cd; padding: 10px; border-radius: 4px; margin-top: 10px;">
+                    <strong>📱 If bot shows connected but phone doesn't:</strong>
+                    <ol style="margin: 5px 0; padding-left: 20px;">
+                        <li>Open WhatsApp → Settings → Linked Devices</li>
+                        <li>Pull down to <strong>REFRESH</strong> the screen</li>
+                        <li>Wait 30 seconds and refresh again if needed</li>
+                        <li>The device should appear as "WhatsApp Bot" or "Chrome"</li>
+                    </ol>
+                </div>
+            </div>
             <div class="qr-code" id="qr-container" style="display: none;">
                 <img id="qr-image" src="" alt="WhatsApp QR Code">
             </div>
@@ -602,6 +631,7 @@ app.get('/qr', (req, res) => {
                 fetch('/api/qr')
                     .then(response => response.json())
                     .then(data => {
+                        // Update QR code display
                         if (data.qrCode) {
                             document.getElementById('qr-image').src = data.qrCode;
                             document.getElementById('qr-container').style.display = 'block';
@@ -612,6 +642,35 @@ app.get('/qr', (req, res) => {
                             document.getElementById('status').innerHTML = '⏳ Waiting for QR code...';
                             document.getElementById('status').className = 'status waiting';
                         }
+                        
+                        // Update connection status
+                        if (data.connectionStatus) {
+                            const statusDiv = document.getElementById('connection-status');
+                            const statusText = document.getElementById('status-text');
+                            const statusTime = document.getElementById('status-time');
+                            
+                            if (data.connectionStatus.connected) {
+                                statusDiv.style.display = 'block';
+                                statusText.innerHTML = '<span style="color: green;">✅ Connected</span>';
+                                statusText.className = 'status connected';
+                                if (data.connectionStatus.lastUpdate) {
+                                    const date = new Date(data.connectionStatus.lastUpdate);
+                                    statusTime.textContent = date.toLocaleString();
+                                }
+                                // Hide QR code if connected
+                                if (data.connectionStatus.connected) {
+                                    document.getElementById('qr-container').style.display = 'none';
+                                    document.getElementById('status').innerHTML = '✅ Bot is connected! Check your phone\'s Linked Devices and refresh if needed.';
+                                    document.getElementById('status').className = 'status ready';
+                                }
+                            } else if (data.connectionStatus.connectionState === 'connecting') {
+                                statusDiv.style.display = 'block';
+                                statusText.innerHTML = '<span style="color: orange;">🔄 Connecting...</span>';
+                                statusTime.textContent = 'Just now';
+                            } else {
+                                statusDiv.style.display = 'none';
+                            }
+                        }
                     })
                     .catch(error => {
                         console.error('Error:', error);
@@ -620,7 +679,7 @@ app.get('/qr', (req, res) => {
                     });
             }
             
-            // Check for QR code every 2 seconds
+            // Check for QR code and status every 2 seconds
             setInterval(checkQRCode, 2000);
             
             // Check immediately on page load
