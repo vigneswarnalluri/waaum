@@ -1,4 +1,4 @@
-import { default as makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, downloadMediaMessage } from "@whiskeysockets/baileys"
+import { default as makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, downloadMediaMessage, DisconnectReason } from "@whiskeysockets/baileys"
 import P from "pino"
 import qrcode from "qrcode"
 import fs from "fs"
@@ -127,86 +127,439 @@ async function validateGroupMembership(sock, groupId) {
 }
 
 async function startBot() {
-    const { state, saveCreds } = await useMultiFileAuthState("auth_info")
-    const { version } = await fetchLatestBaileysVersion()
+    try {
+        const { state, saveCreds } = await useMultiFileAuthState("auth_info")
+        const { version } = await fetchLatestBaileysVersion()
 
-    const sock = makeWASocket({
-        version,
-        auth: state,
-        logger: P({ level: config.logging.level })
-    })
-    
-    // Store global reference for hot reload
-    globalSock = sock
-
-    sock.ev.on("creds.update", saveCreds)
-
-    // Connection handler
-    sock.ev.on("connection.update", async (update) => {
-        const { connection, qr } = update
-        if (qr) {
-            logMessage("info", "QR Code generated - scan with WhatsApp")
-            console.log("Scan this QR code with WhatsApp:")
-            console.log("=".repeat(50))
-            
-            try {
-                // Generate QR code as data URL
-                const qrDataURL = await qrcode.toDataURL(qr, {
-                    width: 512,
-                    margin: 2,
-                    color: {
-                        dark: '#000000',
-                        light: '#FFFFFF'
-                    }
-                })
-                
-                // Store QR code globally
-                currentQRCode = qrDataURL
-                
-                // Also generate terminal version as fallback
-                const qrTerminal = await qrcode.toString(qr, { type: 'terminal', small: true })
-                console.log(qrTerminal)
-                
-                console.log("=".repeat(50))
-                console.log("🌐 For better QR code display, visit:")
-                console.log(`   http://localhost:${process.env.PORT || 3000}/qr`)
-                console.log("   or check Railway web interface")
-                console.log("=".repeat(50))
-                
-            } catch (error) {
-                logMessage("error", `Failed to generate QR code: ${error.message}`)
-                console.log("❌ Failed to generate QR code")
-            }
-        }
-        if (connection === "open") {
-            logMessage("info", "✅ Connected to WhatsApp successfully")
-            console.log("✅ Connected to WhatsApp")
-            
-            // Validate group memberships
-            setTimeout(async () => {
-                logMessage("info", "🔍 Validating group memberships...")
-                const sourceValid = await validateGroupMembership(sock, config.groups.sourceGroup)
-                const targetValid = await validateGroupMembership(sock, config.groups.targetGroup)
-                
-                // Log validation results
-                if (sourceValid && targetValid) {
-                    logMessage("info", "✅ Both groups validated successfully - Bot is ready to forward messages")
-                } else {
-                    logMessage("warn", "⚠️ Group validation failed - Check bot membership in both groups")
+        const sock = makeWASocket({
+            version,
+            auth: state,
+            logger: P({ level: config.logging.level }),
+            printQRInTerminal: true,
+            browser: ['WhatsApp Bot', 'Chrome', '10.0.0'],
+            getMessage: async (key) => {
+                return {
+                    conversation: "Message not found"
                 }
-            }, 5000) // Wait 5 seconds after connection
-            
-            // Reset rate limiting every hour
-            setInterval(resetRateLimit, 60 * 60 * 1000)
-        } else if (connection === "close") {
-            logMessage("error", "❌ Connection closed, retrying...")
-            console.log("❌ Connection closed, retrying...")
-            setTimeout(startBot, 5000) // Retry after 5 seconds
-        }
-    })
+            }
+        })
+        
+        // Store global reference for hot reload
+        globalSock = sock
 
-    // Log configuration for debugging
-    logMessage("info", `Bot configured - Source Group: ${config.groups.sourceGroup}, Target Group: ${config.groups.targetGroup}`)
+        sock.ev.on("creds.update", saveCreds)
+
+        // Handle connection updates
+        sock.ev.on("connection.update", async (update) => {
+            const { connection, lastDisconnect, qr, isNewLogin } = update
+            
+            // Handle QR code generation
+            if (qr) {
+                logMessage("info", "QR Code generated - scan with WhatsApp")
+                console.log("=".repeat(50))
+                console.log("📱 NEW QR CODE - Scan this with WhatsApp:")
+                console.log("QR codes expire in ~20 seconds. Scan quickly!")
+                console.log("=".repeat(50))
+                
+                try {
+                    // Generate QR code as data URL
+                    const qrDataURL = await qrcode.toDataURL(qr, {
+                        width: 512,
+                        margin: 2,
+                        color: {
+                            dark: '#000000',
+                            light: '#FFFFFF'
+                        }
+                    })
+                    
+                    // Store QR code globally
+                    currentQRCode = qrDataURL
+                    
+                    // Also generate terminal version as fallback
+                    const qrTerminal = await qrcode.toString(qr, { type: 'terminal', small: true })
+                    console.log(qrTerminal)
+                    
+                    console.log("=".repeat(50))
+                    console.log("🌐 For better QR code display, visit:")
+                    console.log(`   http://localhost:${process.env.PORT || 3000}/qr`)
+                    console.log("   or check Railway web interface")
+                    console.log("=".repeat(50))
+                    
+                } catch (error) {
+                    logMessage("error", `Failed to generate QR code: ${error.message}`)
+                    console.log("❌ Failed to generate QR code")
+                }
+            }
+            
+            // Handle connection states
+            if (connection === "connecting") {
+                logMessage("info", "🔄 Connecting to WhatsApp...")
+                console.log("🔄 Connecting to WhatsApp...")
+            } else if (connection === "open") {
+                logMessage("info", "✅ Connected to WhatsApp successfully")
+                console.log("✅ Connected to WhatsApp successfully!")
+                if (isNewLogin) {
+                    logMessage("info", "🆕 New login detected - Session established")
+                    console.log("🆕 New login detected")
+                }
+                
+                // Clear QR code once connected
+                currentQRCode = null
+                
+                // Validate group memberships
+                setTimeout(async () => {
+                    logMessage("info", "🔍 Validating group memberships...")
+                    const sourceValid = await validateGroupMembership(sock, config.groups.sourceGroup)
+                    const targetValid = await validateGroupMembership(sock, config.groups.targetGroup)
+                    
+                    // Log validation results
+                    if (sourceValid && targetValid) {
+                        logMessage("info", "✅ Both groups validated successfully - Bot is ready to forward messages")
+                    } else {
+                        logMessage("warn", "⚠️ Group validation failed - Check bot membership in both groups")
+                    }
+                }, 5000) // Wait 5 seconds after connection
+                
+                // Reset rate limiting every hour
+                setInterval(resetRateLimit, 60 * 60 * 1000)
+            } else if (connection === "close") {
+                // Handle disconnection
+                const statusCode = lastDisconnect?.error?.output?.statusCode
+                const shouldReconnect = lastDisconnect?.error?.output?.shouldReconnect
+                
+                logMessage("error", `❌ Connection closed - Status: ${statusCode || 'unknown'}`)
+                console.log(`❌ Connection closed`)
+                
+                if (lastDisconnect?.error) {
+                    logMessage("error", `Disconnect error: ${JSON.stringify(lastDisconnect.error)}`)
+                    console.log(`Error details:`, lastDisconnect.error)
+                }
+                
+                // Handle specific error codes
+                if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
+                    logMessage("error", "❌ Logged out from WhatsApp - Authentication required")
+                    console.log("❌ Logged out - Need to scan QR code again")
+                    // Clear authentication to force new QR code
+                    try {
+                        if (fs.existsSync("auth_info")) {
+                            logMessage("info", "🧹 Clearing corrupted authentication...")
+                            fs.rmSync("auth_info", { recursive: true, force: true })
+                            console.log("🧹 Cleared authentication - will generate new QR code")
+                        }
+                    } catch (err) {
+                        logMessage("error", `Failed to clear auth: ${err.message}`)
+                    }
+                } else if (statusCode === DisconnectReason.restartRequired) {
+                    logMessage("info", "🔄 Restart required - reconnecting...")
+                    console.log("🔄 Restart required")
+                } else if (statusCode === DisconnectReason.timedOut) {
+                    logMessage("warn", "⏱️ Connection timed out - retrying...")
+                    console.log("⏱️ Connection timed out")
+                } else if (statusCode === 408) {
+                    logMessage("warn", "⏱️ Connection timeout - retrying...")
+                    console.log("⏱️ Connection timeout")
+                } else if (!shouldReconnect) {
+                    logMessage("error", "❌ Should not reconnect - manual intervention required")
+                    console.log("❌ Should not reconnect - check your phone's internet connection")
+                }
+                
+                // Reconnect if needed
+                if (shouldReconnect !== false) {
+                    logMessage("info", "🔄 Reconnecting in 5 seconds...")
+                    console.log("🔄 Reconnecting in 5 seconds...")
+                    setTimeout(startBot, 5000)
+                } else {
+                    logMessage("error", "❌ Cannot reconnect automatically - please restart manually")
+                    console.log("❌ Cannot reconnect - please check your configuration and restart")
+                }
+            }
+        })
+        
+        // Log configuration for debugging
+        logMessage("info", `Bot configured - Source Group: ${config.groups.sourceGroup}, Target Group: ${config.groups.targetGroup}`)
+        
+        // Handle incoming messages
+        sock.ev.on("messages.upsert", async (m) => {
+            // Process only notification upserts to avoid duplicates from history/append
+            if (m.type && m.type !== 'notify') {
+                logMessage("debug", `Skipping upsert of type: ${m.type}`)
+                return
+            }
+
+            const msg = m.messages[0]
+            if (!msg.message) return
+            const from = msg.key.remoteJid
+            const sender = msg.key.participant || msg.key.remoteJid
+
+            // Enhanced logging for debugging
+            logMessage("debug", `Message received from: ${from}, Sender: ${sender}`)
+            logMessage("debug", `Expected source group: ${config.groups.sourceGroup}`)
+            logMessage("debug", `Message type: ${Object.keys(msg.message)[0]}`)
+            
+            // Log ALL message types for debugging - from ANY group
+            logMessage("info", `🔍 MESSAGE FROM: ${from}`)
+            logMessage("info", `🔍 ALL MESSAGE TYPES: ${JSON.stringify(Object.keys(msg.message))}`)
+            if (from === config.groups.sourceGroup) {
+                logMessage("info", `🔍 SOURCE GROUP MESSAGE - FULL STRUCTURE: ${JSON.stringify(msg.message, null, 2)}`)
+            }
+            
+            // Check for forwarded message indicators
+            const allKeys = Object.keys(msg.message)
+            const userContentTypes = [
+                'conversation',
+                'extendedTextMessage',
+                'imageMessage',
+                'videoMessage',
+                'audioMessage',
+                'documentMessage',
+                'stickerMessage',
+                'contactMessage',
+                'locationMessage'
+            ]
+            const wrapperTypes = ['messageContextInfo', 'ephemeralMessage']
+            const systemTypes = ['senderKeyDistributionMessage', 'protocolMessage', 'reactionMessage']
+
+            const preferredTypes = [...userContentTypes, ...wrapperTypes]
+            const originalFirstType = allKeys[0]
+            const messageType = allKeys.find(k => preferredTypes.includes(k)) || originalFirstType
+            const isForwarded = msg.message[messageType]?.contextInfo?.forwardingScore > 0
+            if (isForwarded) {
+                logMessage("debug", "Message is forwarded (forwardingScore > 0)")
+            }
+            
+            // Check if message is from expected source group
+            if (from === config.groups.sourceGroup) {
+                logMessage("info", `✅ Message from source group detected: ${from}`)
+                logMessage("debug", `Message type: ${messageType}`)
+
+                // De-duplicate by WhatsApp message ID
+                const messageId = msg.key.id
+                if (messageId) {
+                    if (processedMessageIds.has(messageId)) {
+                        logMessage("debug", `Duplicate message detected, ignoring: ${messageId}`)
+                        return
+                    }
+                    processedMessageIds.set(messageId, Date.now())
+                    // Simple size cap to keep memory bounded
+                    if (processedMessageIds.size > 2000) {
+                        let removed = 0
+                        for (const k of processedMessageIds.keys()) {
+                            processedMessageIds.delete(k)
+                            removed++
+                            if (removed >= 500) break
+                        }
+                    }
+                }
+                
+                // Check for ephemeral messages first (even if primary type is system message)
+                if (msg.message.ephemeralMessage) {
+                    logMessage("debug", "Processing ephemeral message - extracting content")
+                    const ephemeralContent = msg.message.ephemeralMessage?.message
+                    if (ephemeralContent) {
+                        // Process the ephemeral message content
+                        await processActualMessage(ephemeralContent, msg, sock)
+                        return
+                    } else {
+                        logMessage("debug", "No content found in ephemeral message")
+                        return
+                    }
+                }
+                
+                // Skip system messages only if they don't contain any user content
+                const hasUserContentAlongside = allKeys.some(k => userContentTypes.includes(k))
+                if (systemTypes.includes(originalFirstType) && !hasUserContentAlongside) {
+                    logMessage("debug", `Skipping system message type without content: ${originalFirstType}`)
+                    return
+                }
+                
+                // Handle messageContextInfo - extract the actual message content
+                if (messageType === 'messageContextInfo') {
+                    logMessage("debug", "Processing messageContextInfo - extracting actual message content")
+                    // messageContextInfo contains the actual message in its context
+                    const actualMessage = msg.message.messageContextInfo?.quotedMessage
+                    if (actualMessage) {
+                        // Process the actual message content
+                        await processActualMessage(actualMessage, msg, sock)
+                        return
+                    } else {
+                        logMessage("debug", "No quoted message found in messageContextInfo")
+                        return
+                    }
+                }
+                
+                // Check rate limiting
+                if (!checkRateLimit('message')) {
+                    logMessage("warn", "Rate limit exceeded for messages")
+                    return
+                }
+
+                // Handle text messages (including forwarded messages)
+                let text = msg.message.conversation || msg.message.extendedTextMessage?.text
+                
+                logMessage("debug", `Processing message - Text content: ${text ? 'Yes' : 'No'}`)
+                
+                // Handle forwarded messages - extract content and strip forwarding metadata
+                if (isForwarded) {
+                    logMessage("debug", "Processing forwarded message")
+                    // For forwarded messages, extract the text content directly
+                    if (msg.message.extendedTextMessage?.text) {
+                        text = msg.message.extendedTextMessage.text
+                    } else if (msg.message.conversation) {
+                        text = msg.message.conversation
+                    }
+                }
+                
+                // Handle quoted messages (replies) - strip context info to avoid forwarding detection
+                if (msg.message.extendedTextMessage?.contextInfo?.quotedMessage) {
+                    const quotedMsg = msg.message.extendedTextMessage.contextInfo.quotedMessage
+                    const quotedText = quotedMsg.conversation || quotedMsg.extendedTextMessage?.text
+                    if (quotedText) {
+                        text = `${text}\n\n💬 Reply to: ${quotedText}`
+                        logMessage("debug", "Processing quoted message")
+                    }
+                }
+                
+                if (text && config.settings.forwardText) {
+                    logMessage("info", `📝 Processing text message for forwarding...`)
+                    // Check if message should be forwarded based on filters
+                    if (!shouldForwardMessage(text, sender)) {
+                        stats.messagesFiltered++
+                        logMessage("info", `Message filtered out: ${text.substring(0, 50)}...`)
+                        return
+                    }
+                    
+                    logMessage("info", `Forwarding text: ${text.substring(0, 50)}...`)
+                    logMessage("debug", `Sending to target group: ${config.groups.targetGroup}`)
+                    try {
+                        // Create a completely clean message object to avoid forwarding detection
+                        const cleanMessage = {
+                            text: text
+                        }
+                        
+                        logMessage("info", `🚀 Attempting to send message to target group: ${config.groups.targetGroup}`)
+                        logMessage("info", `🚀 Message content: "${text}"`)
+                        
+                        const result = await sock.sendMessage(config.groups.targetGroup, cleanMessage)
+                        stats.messagesForwarded++
+                        logMessage("info", `✅ Text message forwarded successfully to ${config.groups.targetGroup}`)
+                        logMessage("info", `🚀 Send result: ${JSON.stringify(result)}`)
+                    } catch (err) {
+                        stats.errors++
+                        logMessage("error", `❌ Error forwarding text to ${config.groups.targetGroup}: ${err.message}`)
+                        logMessage("error", `Error details: ${JSON.stringify(err)}`)
+                    }
+                } else if (!text) {
+                    logMessage("debug", `No text content found in message type: ${messageType}`)
+                } else if (!config.settings.forwardText) {
+                    logMessage("debug", `Text forwarding is disabled in config`)
+                }
+                
+                // Handle media messages (including forwarded media)
+                const hasImage = msg.message.imageMessage && config.settings.forwardImages
+                const hasVideo = msg.message.videoMessage && config.settings.forwardVideos
+                const hasAudio = msg.message.audioMessage && config.settings.forwardAudio
+                const hasDocument = msg.message.documentMessage && config.settings.forwardDocuments
+                
+                // Catch-all handler for any unhandled message types
+                if (!text && !hasImage && !hasVideo && !hasAudio && !hasDocument) {
+                    logMessage("warn", `⚠️ UNHANDLED MESSAGE TYPE: ${messageType}`)
+                    logMessage("warn", `⚠️ Message structure: ${JSON.stringify(msg.message, null, 2)}`)
+                }
+
+                if (hasImage || hasVideo || hasAudio || hasDocument) {
+                    // Check rate limiting for media
+                    if (!checkRateLimit('media')) {
+                        logMessage("warn", "Rate limit exceeded for media")
+                        return
+                    }
+                    
+                    try {
+                        logMessage("info", "Processing media message...")
+                        
+                        // Download media as buffer and strip forwarding metadata
+                        const buffer = await downloadMediaMessage(
+                            msg,
+                            "buffer",
+                            { },
+                            {
+                                logger: P({ level: config.logging.level }),
+                                reuploadRequest: sock.updateMediaMessage
+                            }
+                        )
+                
+                        // Check if buffer is valid
+                        if (!buffer || buffer.length === 0) {
+                            logMessage("error", "❌ Invalid or empty media buffer")
+                            return
+                        }
+                        
+                        // Detect type
+                        const type = Object.keys(msg.message)[0]
+                        logMessage("info", `Forwarding media: ${type}, Buffer size: ${buffer.length} bytes`)
+                        
+                        // Use original caption without attribution
+                        const finalCaption = msg.message[type]?.caption || ""
+                
+                        // Create completely clean message objects to avoid forwarding detection
+                        if (type === "imageMessage") {
+                            const cleanImageMessage = {
+                                image: buffer,
+                                mimetype: msg.message.imageMessage?.mimetype || "image/jpeg"
+                            }
+                            if (finalCaption) {
+                                cleanImageMessage.caption = finalCaption
+                            }
+                            await sock.sendMessage(config.groups.targetGroup, cleanImageMessage)
+                        } else if (type === "videoMessage") {
+                            const cleanVideoMessage = {
+                                video: buffer,
+                                mimetype: msg.message.videoMessage?.mimetype || "video/mp4"
+                            }
+                            if (finalCaption) {
+                                cleanVideoMessage.caption = finalCaption
+                            }
+                            await sock.sendMessage(config.groups.targetGroup, cleanVideoMessage)
+                        } else if (type === "audioMessage") {
+                            const cleanAudioMessage = {
+                                audio: buffer,
+                                mimetype: msg.message.audioMessage?.mimetype || "audio/mpeg",
+                                ptt: msg.message.audioMessage?.ptt || false
+                            }
+                            await sock.sendMessage(config.groups.targetGroup, cleanAudioMessage)
+                        } else if (type === "documentMessage") {
+                            const cleanDocumentMessage = {
+                                document: buffer,
+                                mimetype: msg.message.documentMessage?.mimetype || "application/octet-stream",
+                                fileName: msg.message.documentMessage?.fileName || "file"
+                            }
+                            if (finalCaption) {
+                                cleanDocumentMessage.caption = finalCaption
+                            }
+                            await sock.sendMessage(config.groups.targetGroup, cleanDocumentMessage)
+                        }
+                
+                        stats.mediaForwarded++
+                        logMessage("info", "✅ Media forwarded successfully")
+                
+                    } catch (err) {
+                        stats.errors++
+                        logMessage("error", `❌ Error forwarding media: ${err.message}`)
+                    }
+                }
+                
+            }
+        })
+        
+    } catch (error) {
+        logMessage("error", `❌ Failed to start bot: ${error.message}`)
+        console.log(`❌ Failed to start bot: ${error.message}`)
+        console.log("Stack trace:", error.stack)
+        
+        // Retry after error
+        logMessage("info", "🔄 Retrying in 10 seconds...")
+        setTimeout(startBot, 10000)
+    }
+}
 
   // Function to process actual message content from messageContextInfo
 async function processActualMessage(actualMessage, originalMsg, sock) {
@@ -339,278 +692,6 @@ async function processActualMessage(actualMessage, originalMsg, sock) {
     }
 }
 
-// Inside the messages.upsert event
-sock.ev.on("messages.upsert", async (m) => {
-    // Process only notification upserts to avoid duplicates from history/append
-    if (m.type && m.type !== 'notify') {
-        logMessage("debug", `Skipping upsert of type: ${m.type}`)
-        return
-    }
-
-    const msg = m.messages[0]
-    if (!msg.message) return
-    const from = msg.key.remoteJid
-    const sender = msg.key.participant || msg.key.remoteJid
-
-    // Enhanced logging for debugging
-    logMessage("debug", `Message received from: ${from}, Sender: ${sender}`)
-    logMessage("debug", `Expected source group: ${config.groups.sourceGroup}`)
-    logMessage("debug", `Message type: ${Object.keys(msg.message)[0]}`)
-    
-    // Log ALL message types for debugging - from ANY group
-    logMessage("info", `🔍 MESSAGE FROM: ${from}`)
-    logMessage("info", `🔍 ALL MESSAGE TYPES: ${JSON.stringify(Object.keys(msg.message))}`)
-    if (from === config.groups.sourceGroup) {
-        logMessage("info", `🔍 SOURCE GROUP MESSAGE - FULL STRUCTURE: ${JSON.stringify(msg.message, null, 2)}`)
-    }
-    
-    // Check for forwarded message indicators
-    const allKeys = Object.keys(msg.message)
-    const userContentTypes = [
-        'conversation',
-        'extendedTextMessage',
-        'imageMessage',
-        'videoMessage',
-        'audioMessage',
-        'documentMessage',
-        'stickerMessage',
-        'contactMessage',
-        'locationMessage'
-    ]
-    const wrapperTypes = ['messageContextInfo', 'ephemeralMessage']
-    const systemTypes = ['senderKeyDistributionMessage', 'protocolMessage', 'reactionMessage']
-
-    const preferredTypes = [...userContentTypes, ...wrapperTypes]
-    const originalFirstType = allKeys[0]
-    const messageType = allKeys.find(k => preferredTypes.includes(k)) || originalFirstType
-    const isForwarded = msg.message[messageType]?.contextInfo?.forwardingScore > 0
-    if (isForwarded) {
-        logMessage("debug", "Message is forwarded (forwardingScore > 0)")
-    }
-    
-    // Check if message is from expected source group
-    if (from === config.groups.sourceGroup) {
-        logMessage("info", `✅ Message from source group detected: ${from}`)
-        logMessage("debug", `Message type: ${messageType}`)
-
-        // De-duplicate by WhatsApp message ID
-        const messageId = msg.key.id
-        if (messageId) {
-            if (processedMessageIds.has(messageId)) {
-                logMessage("debug", `Duplicate message detected, ignoring: ${messageId}`)
-                return
-            }
-            processedMessageIds.set(messageId, Date.now())
-            // Simple size cap to keep memory bounded
-            if (processedMessageIds.size > 2000) {
-                let removed = 0
-                for (const k of processedMessageIds.keys()) {
-                    processedMessageIds.delete(k)
-                    removed++
-                    if (removed >= 500) break
-                }
-            }
-        }
-        
-        // Check for ephemeral messages first (even if primary type is system message)
-        if (msg.message.ephemeralMessage) {
-            logMessage("debug", "Processing ephemeral message - extracting content")
-            const ephemeralContent = msg.message.ephemeralMessage?.message
-            if (ephemeralContent) {
-                // Process the ephemeral message content
-                await processActualMessage(ephemeralContent, msg, sock)
-                return
-            } else {
-                logMessage("debug", "No content found in ephemeral message")
-                return
-            }
-        }
-        
-        // Skip system messages only if they don't contain any user content
-        const hasUserContentAlongside = allKeys.some(k => userContentTypes.includes(k))
-        if (systemTypes.includes(originalFirstType) && !hasUserContentAlongside) {
-            logMessage("debug", `Skipping system message type without content: ${originalFirstType}`)
-            return
-        }
-        
-        // Handle messageContextInfo - extract the actual message content
-        if (messageType === 'messageContextInfo') {
-            logMessage("debug", "Processing messageContextInfo - extracting actual message content")
-            // messageContextInfo contains the actual message in its context
-            const actualMessage = msg.message.messageContextInfo?.quotedMessage
-            if (actualMessage) {
-                // Process the actual message content
-                await processActualMessage(actualMessage, msg, sock)
-                return
-            } else {
-                logMessage("debug", "No quoted message found in messageContextInfo")
-                return
-            }
-        }
-        
-        // Check rate limiting
-        if (!checkRateLimit('message')) {
-            logMessage("warn", "Rate limit exceeded for messages")
-            return
-        }
-
-        // Handle text messages (including forwarded messages)
-        let text = msg.message.conversation || msg.message.extendedTextMessage?.text
-        
-        logMessage("debug", `Processing message - Text content: ${text ? 'Yes' : 'No'}`)
-        
-        // Handle forwarded messages - extract content and strip forwarding metadata
-        if (isForwarded) {
-            logMessage("debug", "Processing forwarded message")
-            // For forwarded messages, extract the text content directly
-            if (msg.message.extendedTextMessage?.text) {
-                text = msg.message.extendedTextMessage.text
-            } else if (msg.message.conversation) {
-                text = msg.message.conversation
-            }
-        }
-        
-        // Handle quoted messages (replies) - strip context info to avoid forwarding detection
-        if (msg.message.extendedTextMessage?.contextInfo?.quotedMessage) {
-            const quotedMsg = msg.message.extendedTextMessage.contextInfo.quotedMessage
-            const quotedText = quotedMsg.conversation || quotedMsg.extendedTextMessage?.text
-            if (quotedText) {
-                text = `${text}\n\n💬 Reply to: ${quotedText}`
-                logMessage("debug", "Processing quoted message")
-            }
-        }
-        
-        if (text && config.settings.forwardText) {
-            logMessage("info", `📝 Processing text message for forwarding...`)
-            // Check if message should be forwarded based on filters
-            if (!shouldForwardMessage(text, sender)) {
-                stats.messagesFiltered++
-                logMessage("info", `Message filtered out: ${text.substring(0, 50)}...`)
-                return
-            }
-            
-            logMessage("info", `Forwarding text: ${text.substring(0, 50)}...`)
-            logMessage("debug", `Sending to target group: ${config.groups.targetGroup}`)
-            try {
-                // Create a completely clean message object to avoid forwarding detection
-                const cleanMessage = {
-                    text: text
-                }
-                
-                logMessage("info", `🚀 Attempting to send message to target group: ${config.groups.targetGroup}`)
-                logMessage("info", `🚀 Message content: "${text}"`)
-                
-                const result = await sock.sendMessage(config.groups.targetGroup, cleanMessage)
-                stats.messagesForwarded++
-                logMessage("info", `✅ Text message forwarded successfully to ${config.groups.targetGroup}`)
-                logMessage("info", `🚀 Send result: ${JSON.stringify(result)}`)
-            } catch (err) {
-                stats.errors++
-                logMessage("error", `❌ Error forwarding text to ${config.groups.targetGroup}: ${err.message}`)
-                logMessage("error", `Error details: ${JSON.stringify(err)}`)
-            }
-        } else if (!text) {
-            logMessage("debug", `No text content found in message type: ${messageType}`)
-        } else if (!config.settings.forwardText) {
-            logMessage("debug", `Text forwarding is disabled in config`)
-        }
-        
-        // Handle media messages (including forwarded media)
-        const hasImage = msg.message.imageMessage && config.settings.forwardImages
-        const hasVideo = msg.message.videoMessage && config.settings.forwardVideos
-        const hasAudio = msg.message.audioMessage && config.settings.forwardAudio
-        const hasDocument = msg.message.documentMessage && config.settings.forwardDocuments
-        
-        // Catch-all handler for any unhandled message types
-        if (!text && !hasImage && !hasVideo && !hasAudio && !hasDocument) {
-            logMessage("warn", `⚠️ UNHANDLED MESSAGE TYPE: ${messageType}`)
-            logMessage("warn", `⚠️ Message structure: ${JSON.stringify(msg.message, null, 2)}`)
-        }
-
-        if (hasImage || hasVideo || hasAudio || hasDocument) {
-            // Check rate limiting for media
-            if (!checkRateLimit('media')) {
-                logMessage("warn", "Rate limit exceeded for media")
-                return
-            }
-            
-            try {
-                logMessage("info", "Processing media message...")
-                
-                // Download media as buffer and strip forwarding metadata
-                const buffer = await downloadMediaMessage(
-                    msg,
-                    "buffer",
-                    { },
-                    {
-                        logger: P({ level: config.logging.level }),
-                        reuploadRequest: sock.updateMediaMessage
-                    }
-                )
-        
-                // Check if buffer is valid
-                if (!buffer || buffer.length === 0) {
-                    logMessage("error", "❌ Invalid or empty media buffer")
-                    return
-                }
-                
-                // Detect type
-                const type = Object.keys(msg.message)[0]
-                logMessage("info", `Forwarding media: ${type}, Buffer size: ${buffer.length} bytes`)
-                
-                // Use original caption without attribution
-                const finalCaption = msg.message[type]?.caption || ""
-        
-                // Create completely clean message objects to avoid forwarding detection
-                if (type === "imageMessage") {
-                    const cleanImageMessage = {
-                        image: buffer,
-                        mimetype: msg.message.imageMessage?.mimetype || "image/jpeg"
-                    }
-                    if (finalCaption) {
-                        cleanImageMessage.caption = finalCaption
-                    }
-                    await sock.sendMessage(config.groups.targetGroup, cleanImageMessage)
-                } else if (type === "videoMessage") {
-                    const cleanVideoMessage = {
-                        video: buffer,
-                        mimetype: msg.message.videoMessage?.mimetype || "video/mp4"
-                    }
-                    if (finalCaption) {
-                        cleanVideoMessage.caption = finalCaption
-                    }
-                    await sock.sendMessage(config.groups.targetGroup, cleanVideoMessage)
-                } else if (type === "audioMessage") {
-                    const cleanAudioMessage = {
-                        audio: buffer,
-                        mimetype: msg.message.audioMessage?.mimetype || "audio/mpeg",
-                        ptt: msg.message.audioMessage?.ptt || false
-                    }
-                    await sock.sendMessage(config.groups.targetGroup, cleanAudioMessage)
-                } else if (type === "documentMessage") {
-                    const cleanDocumentMessage = {
-                        document: buffer,
-                        mimetype: msg.message.documentMessage?.mimetype || "application/octet-stream",
-                        fileName: msg.message.documentMessage?.fileName || "file"
-                    }
-                    if (finalCaption) {
-                        cleanDocumentMessage.caption = finalCaption
-                    }
-                    await sock.sendMessage(config.groups.targetGroup, cleanDocumentMessage)
-                }
-        
-                stats.mediaForwarded++
-                logMessage("info", "✅ Media forwarded successfully")
-        
-            } catch (err) {
-                stats.errors++
-                logMessage("error", `❌ Error forwarding media: ${err.message}`)
-            }
-        }
-        
-    }
-})
-}
 
 // Test group connection function
 async function testGroupConnection(sourceGroup, targetGroup) {
